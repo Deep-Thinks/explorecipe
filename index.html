@@ -555,7 +555,8 @@ footer.foot {
     <p class="upload-sub">AI 会把它拆解开来，让你看清它的灵魂</p>
     <p class="upload-warn">仅识别食物 / 菜品 · 人像、文档、风景图会被拒绝</p>
     <label class="upload-btn" for="fileInput">选择图片</label>
-    <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+    <!-- 不要加 capture="environment"：会强制跳相机、屏蔽相册入口（iOS Safari/部分安卓） -->
+    <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp">
 
     <div id="previewWrap" class="preview-wrap">
       <img id="previewImg" class="preview-img" alt="预览">
