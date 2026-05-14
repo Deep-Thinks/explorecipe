@@ -30,5 +30,8 @@ venv/
 e2e_*.bin
 ui-debug-*.png
 
+# 第三方工具的会话产物（codex 等）
+.context/
+
 # 大的或私有的测试输出
 scripts/probe_*_results/

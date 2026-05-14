@@ -1,0 +1,886 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#0d0d0f" />
+<title>ExploreCipe · Phase 2</title>
+<style>
+  :root {
+    --bg: #0d0d0f;
+    --bg-2: #1a1a1f;
+    --fg: #f5f5f7;
+    --fg-mute: #9a9aa3;
+    --accent: #ff6b3d;
+    --accent-soft: rgba(255, 107, 61, 0.18);
+    --line: rgba(255, 255, 255, 0.08);
+    --danger: #e74c3c;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+                 "Microsoft YaHei", sans-serif;
+    background: var(--bg);
+    color: var(--fg);
+    overscroll-behavior-y: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  button {
+    font-family: inherit;
+    border: none;
+    cursor: pointer;
+    background: none;
+    color: inherit;
+  }
+  #app { min-height: 100%; display: flex; flex-direction: column; }
+
+  /* ============ 上传视图 ============ */
+  .upload {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    text-align: center;
+    gap: 24px;
+  }
+  .upload h1 {
+    margin: 0;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .upload h1 .accent { color: var(--accent); }
+  .upload p {
+    margin: 0;
+    color: var(--fg-mute);
+    font-size: 15px;
+    max-width: 320px;
+    line-height: 1.5;
+  }
+  .upload-btn {
+    margin-top: 8px;
+    padding: 18px 36px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 999px;
+    font-size: 17px;
+    font-weight: 700;
+    box-shadow: 0 8px 24px var(--accent-soft);
+  }
+  .upload-btn:active { transform: scale(0.97); }
+  .upload-hint {
+    font-size: 13px;
+    color: var(--fg-mute);
+  }
+  .err-banner {
+    background: rgba(231, 76, 60, 0.18);
+    color: #ffb4ab;
+    padding: 12px 16px;
+    border-radius: 12px;
+    font-size: 14px;
+    max-width: 380px;
+    line-height: 1.45;
+  }
+
+  /* ============ Loading 视图 ============ */
+  .loading {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    text-align: center;
+    gap: 18px;
+  }
+  .loading-crop {
+    width: 180px; height: 180px;
+    object-fit: cover;
+    border-radius: 16px;
+    border: 2px solid var(--accent);
+    background: var(--bg-2);
+  }
+  .loading-title {
+    font-size: 20px;
+    font-weight: 700;
+  }
+  .loading-eta {
+    color: var(--fg-mute);
+    font-size: 14px;
+  }
+  .loading-brief {
+    color: var(--fg);
+    font-size: 14px;
+    line-height: 1.6;
+    background: var(--bg-2);
+    padding: 14px 18px;
+    border-radius: 14px;
+    max-width: 320px;
+  }
+  .loading-brief .label { color: var(--accent); font-weight: 700; }
+  .spinner {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
+    animation: spin 1s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ============ 探索视图（面包屑 + 大图） ============ */
+  .explore { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .topbar {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--line);
+    gap: 10px;
+    background: var(--bg);
+  }
+  .topbar-title {
+    font-weight: 700;
+    font-size: 16px;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .topbar-btn {
+    color: var(--fg-mute);
+    font-size: 14px;
+    padding: 6px 10px;
+    border-radius: 8px;
+  }
+  .topbar-btn:active { background: var(--bg-2); }
+
+  .breadcrumb {
+    display: flex;
+    overflow-x: auto;
+    padding: 12px 16px;
+    gap: 8px;
+    border-bottom: 1px solid var(--line);
+    background: var(--bg);
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+  }
+  .breadcrumb::-webkit-scrollbar { display: none; }
+  .crumb {
+    flex: 0 0 auto;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    padding: 4px;
+    border-radius: 10px;
+    min-width: 64px;
+  }
+  .crumb img {
+    width: 48px; height: 48px;
+    object-fit: cover;
+    border-radius: 8px;
+    background: var(--bg-2);
+    border: 2px solid transparent;
+  }
+  .crumb.active img { border-color: var(--accent); }
+  .crumb-name {
+    font-size: 11px;
+    max-width: 64px;
+    color: var(--fg-mute);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+  }
+  .crumb.active .crumb-name { color: var(--fg); font-weight: 600; }
+  .crumb-sep {
+    flex: 0 0 auto;
+    align-self: center;
+    color: var(--fg-mute);
+    font-size: 14px;
+    user-select: none;
+  }
+
+  .canvas-wrap {
+    position: relative;
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background: #000;
+  }
+  .canvas-host {
+    position: relative;
+    max-width: 100%;
+    max-height: 100%;
+  }
+  .canvas-img {
+    display: block;
+    max-width: 100%;
+    max-height: calc(100vh - 220px);
+    height: auto;
+    width: auto;
+    user-select: none;
+    -webkit-user-drag: none;
+  }
+  .canvas-overlay {
+    position: absolute;
+    inset: 0;
+    touch-action: none;
+    pointer-events: none;
+  }
+  .canvas-overlay.selecting { pointer-events: auto; }
+  .scrim {
+    position: absolute; inset: 0;
+    background: rgba(0,0,0,0.35);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.18s ease;
+  }
+  .canvas-overlay.selecting .scrim { opacity: 1; }
+  .redbox {
+    position: absolute;
+    border: 3px solid var(--accent);
+    box-shadow: 0 0 0 9999px rgba(0,0,0,0.0);
+    background: rgba(255, 107, 61, 0.06);
+    pointer-events: none;
+    display: none;
+  }
+  .redbox.visible { display: block; }
+  .hint {
+    position: absolute;
+    bottom: 12px; left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.7);
+    color: #fff;
+    padding: 6px 12px;
+    border-radius: 999px;
+    font-size: 12px;
+    pointer-events: none;
+  }
+
+  /* 候选 layer hover ring (双击吸附用) */
+  .candidate {
+    position: absolute;
+    border: 2px dashed rgba(255, 107, 61, 0.5);
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .candidate.show { opacity: 1; }
+
+  /* 底部 CTA */
+  .bottom-bar {
+    position: sticky;
+    bottom: 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: rgba(13,13,15,0.92);
+    backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+    display: flex;
+    gap: 10px;
+  }
+  .cta {
+    flex: 1;
+    padding: 14px 18px;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 14px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .cta.secondary {
+    background: var(--bg-2);
+    color: var(--fg);
+    flex: 0 0 auto;
+  }
+  .cta:active { transform: scale(0.98); }
+  .cta:disabled { opacity: 0.5; }
+
+  /* 字段列表（爆炸图下方可滚 layers） */
+  .layers-list {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.25s ease;
+    background: var(--bg-2);
+    border-top: 1px solid var(--line);
+  }
+  .layers-list.open { max-height: 240px; overflow-y: auto; }
+  .layer-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .layer-row:last-child { border-bottom: none; }
+  .layer-kind {
+    flex: 0 0 auto;
+    font-size: 10px;
+    padding: 3px 7px;
+    border-radius: 6px;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .layer-kind.tool { background: rgba(154,154,163,0.18); color: var(--fg-mute); }
+  .layer-name { flex: 1; font-weight: 600; }
+  .layer-desc { color: var(--fg-mute); font-size: 12px; max-width: 60%;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* 隐藏 input */
+  input[type=file] { display: none; }
+
+  /* 桌面端 (>=1024px)：暂时复用移动端布局，仅放大画布 */
+  @media (min-width: 1024px) {
+    .canvas-img { max-height: calc(100vh - 260px); }
+    .upload h1 { font-size: 44px; }
+  }
+</style>
+</head>
+<body>
+  <div id="app"></div>
+
+<script>
+"use strict";
+
+// ============================================================
+// 状态机
+// ============================================================
+const STATE = {
+  UPLOAD: "upload",
+  LOADING: "loading",
+  EXPLORE: "explore",
+  ERROR: "error",
+};
+
+const app = {
+  state: STATE.UPLOAD,
+  journeyId: null,
+  meta: null,          // { current_level, path[], dish_name_zh, ... }
+  layersByLevel: {},   // { "1": [...], "2": [...] }
+  activeLevel: 1,
+  selecting: false,
+  cropPreviewUrl: null,
+  loadingBrief: "",
+  loadingTitle: "",
+  loadingEta: "约 60-90 秒",
+  errorMsg: "",
+  showLayers: false,
+};
+
+const root = document.getElementById("app");
+
+function setState(patch) {
+  Object.assign(app, patch);
+  render();
+}
+
+// ============================================================
+// 渲染
+// ============================================================
+function render() {
+  // 删除旧 DOM，重建（简单粗暴，状态切换不频繁）
+  root.innerHTML = "";
+  if (app.state === STATE.UPLOAD) return renderUpload();
+  if (app.state === STATE.LOADING) return renderLoading();
+  if (app.state === STATE.EXPLORE) return renderExplore();
+  if (app.state === STATE.ERROR) return renderError();
+}
+
+function renderUpload() {
+  const div = document.createElement("div");
+  div.className = "upload";
+  div.innerHTML = `
+    <h1><span class="accent">Explore</span>Cipe</h1>
+    <p>上传一张食物照片，AI 把它<b>无限分解</b>给你看。<br />
+       每一层都是一张新的爆炸图，沿着红框一直钻下去。</p>
+    ${ app.errorMsg ? `<div class="err-banner">${escapeHtml(app.errorMsg)}</div>` : "" }
+    <label class="upload-btn">
+      📷 选择图片
+      <input type="file" accept="image/*" />
+    </label>
+    <div class="upload-hint">支持 png / jpg / webp · 最大 12MB</div>
+  `;
+  root.appendChild(div);
+  div.querySelector("input").addEventListener("change", onFileChosen);
+}
+
+function renderLoading() {
+  const div = document.createElement("div");
+  div.className = "loading";
+  div.innerHTML = `
+    ${ app.cropPreviewUrl
+        ? `<img class="loading-crop" src="${app.cropPreviewUrl}" />`
+        : `<div class="spinner"></div>` }
+    <div class="loading-title">${ escapeHtml(app.loadingTitle || "AI 正在生成爆炸图…") }</div>
+    <div class="loading-eta">⏳ ${ escapeHtml(app.loadingEta) }</div>
+    ${ app.loadingBrief
+        ? `<div class="loading-brief"><span class="label">这是：</span>${ escapeHtml(app.loadingBrief) }</div>`
+        : "" }
+  `;
+  root.appendChild(div);
+}
+
+function renderError() {
+  const div = document.createElement("div");
+  div.className = "upload";
+  div.innerHTML = `
+    <h1>出错了</h1>
+    <div class="err-banner">${escapeHtml(app.errorMsg || "未知错误")}</div>
+    <button class="upload-btn" id="retry-btn">返回</button>
+  `;
+  root.appendChild(div);
+  div.querySelector("#retry-btn").addEventListener("click", () => {
+    setState({ state: STATE.UPLOAD, errorMsg: "", journeyId: null, meta: null });
+  });
+}
+
+function renderExplore() {
+  const meta = app.meta;
+  const wrap = document.createElement("div");
+  wrap.className = "explore";
+
+  // ---- topbar ----
+  const topbar = document.createElement("div");
+  topbar.className = "topbar";
+  topbar.innerHTML = `
+    <button class="topbar-btn" id="home-btn">← 首页</button>
+    <div class="topbar-title">${escapeHtml(meta.dish_name_zh || "ExploreCipe")}</div>
+    <button class="topbar-btn" id="copy-btn">分享</button>
+  `;
+  wrap.appendChild(topbar);
+  topbar.querySelector("#home-btn").addEventListener("click", () => {
+    if (confirm("回到首页将离开当前探索（已保存到链接，可粘贴回来）。继续？")) {
+      setState({ state: STATE.UPLOAD, journeyId: null, meta: null, errorMsg: "" });
+      history.replaceState(null, "", "/");
+    }
+  });
+  topbar.querySelector("#copy-btn").addEventListener("click", onShareClick);
+
+  // ---- breadcrumb ----
+  const bc = document.createElement("div");
+  bc.className = "breadcrumb";
+  meta.path.forEach((node, idx) => {
+    const c = document.createElement("button");
+    c.className = "crumb" + (node.level === app.activeLevel ? " active" : "");
+    c.innerHTML = `
+      <img src="${node.image_url}" alt="" />
+      <span class="crumb-name">${escapeHtml(node.title_zh || ("Lv"+node.level))}</span>
+    `;
+    c.addEventListener("click", () => switchLevel(node.level));
+    bc.appendChild(c);
+    if (idx < meta.path.length - 1) {
+      const sep = document.createElement("span");
+      sep.className = "crumb-sep";
+      sep.textContent = "›";
+      bc.appendChild(sep);
+    }
+  });
+  wrap.appendChild(bc);
+
+  // ---- canvas ----
+  const canvasWrap = document.createElement("div");
+  canvasWrap.className = "canvas-wrap";
+  const host = document.createElement("div");
+  host.className = "canvas-host";
+  const activeNode = meta.path.find(n => n.level === app.activeLevel);
+  const img = document.createElement("img");
+  img.className = "canvas-img";
+  img.src = activeNode.image_url;
+  img.draggable = false;
+  host.appendChild(img);
+
+  const overlay = document.createElement("div");
+  overlay.className = "canvas-overlay" + (app.selecting ? " selecting" : "");
+  overlay.innerHTML = `
+    <div class="scrim"></div>
+    <div class="redbox"></div>
+    <div class="candidate"></div>
+    ${ app.selecting
+        ? `<div class="hint">拖动框选 · 双击物体可一键选中</div>`
+        : "" }
+  `;
+  host.appendChild(overlay);
+  canvasWrap.appendChild(host);
+  wrap.appendChild(canvasWrap);
+
+  // ---- layers list (collapsible) ----
+  const list = document.createElement("div");
+  list.className = "layers-list" + (app.showLayers ? " open" : "");
+  const layers = app.layersByLevel[String(app.activeLevel)] || [];
+  list.innerHTML = layers.map((l, i) => `
+    <div class="layer-row" data-idx="${i}">
+      <span class="layer-kind ${l.kind === 'tool' ? 'tool' : ''}">
+        ${l.kind === 'tool' ? '🔧 工具' : '🥬 食材'}
+      </span>
+      <span class="layer-name">${escapeHtml(l.name_zh || '?')}</span>
+      <span class="layer-desc">${escapeHtml(l.desc_30 || '')}</span>
+    </div>
+  `).join("") || `<div class="layer-row"><span class="layer-desc" style="max-width:100%;">（暂无 layers 元数据）</span></div>`;
+  // 点击 layer-row 也能触发吸附选中
+  list.querySelectorAll(".layer-row").forEach(row => {
+    row.addEventListener("click", () => {
+      const idx = parseInt(row.dataset.idx, 10);
+      const layer = layers[idx];
+      if (!layer || !layer.bbox) return;
+      triggerDrill(layer.bbox);
+    });
+  });
+  wrap.appendChild(list);
+
+  // ---- bottom bar ----
+  const bb = document.createElement("div");
+  bb.className = "bottom-bar";
+  if (app.selecting) {
+    bb.innerHTML = `
+      <button class="cta secondary" id="cancel-btn">取消</button>
+      <button class="cta" id="confirm-btn" disabled>✓ 分解这一块</button>
+    `;
+  } else {
+    bb.innerHTML = `
+      <button class="cta secondary" id="layers-btn">${app.showLayers ? "收起清单" : "查看清单"}</button>
+      <button class="cta" id="select-btn">✏️ 框选 → 继续分解</button>
+    `;
+  }
+  wrap.appendChild(bb);
+
+  root.appendChild(wrap);
+
+  // ---- 交互绑定 ----
+  if (app.selecting) {
+    bindSelection(overlay, img);
+    bb.querySelector("#cancel-btn").addEventListener("click", () => {
+      currentBbox = null;
+      setState({ selecting: false });
+    });
+    const confirmBtn = bb.querySelector("#confirm-btn");
+    confirmBtn.addEventListener("click", () => {
+      if (!currentBbox) return;
+      triggerDrill(currentBbox);
+    });
+    // 暴露给 bindSelection
+    overlay._confirmBtn = confirmBtn;
+  } else {
+    bb.querySelector("#select-btn").addEventListener("click", () => {
+      // 进入框选前要等图加载完
+      if (!img.complete) {
+        img.addEventListener("load", () => setState({ selecting: true }), {once:true});
+      } else {
+        setState({ selecting: true });
+      }
+    });
+    bb.querySelector("#layers-btn").addEventListener("click", () => {
+      setState({ showLayers: !app.showLayers });
+    });
+  }
+}
+
+// ============================================================
+// 选择 / 拖框 / 吸附
+// ============================================================
+let currentBbox = null;
+
+function bindSelection(overlay, img) {
+  const redbox = overlay.querySelector(".redbox");
+  const candidate = overlay.querySelector(".candidate");
+
+  function getImageRect() {
+    const r = img.getBoundingClientRect();
+    return r;
+  }
+
+  let dragging = false;
+  let startX = 0, startY = 0;
+  let lastTap = 0;
+
+  overlay.addEventListener("pointerdown", (e) => {
+    overlay.setPointerCapture(e.pointerId);
+    dragging = true;
+    const r = getImageRect();
+    startX = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    startY = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    redbox.classList.add("visible");
+    updateRedbox(startX, startY, startX, startY);
+
+    // 双击吸附检测
+    const now = Date.now();
+    if (now - lastTap < 320) {
+      // 双击 → 找 bbox 内的最小 layer
+      const layers = app.layersByLevel[String(app.activeLevel)] || [];
+      const ratioX = startX / r.width;
+      const ratioY = startY / r.height;
+      const hit = pickLayerContaining(layers, ratioX, ratioY);
+      if (hit) {
+        currentBbox = hit.bbox.slice();
+        renderBboxOnImage(currentBbox);
+        if (overlay._confirmBtn) overlay._confirmBtn.disabled = false;
+        showCandidate(hit, r);
+        dragging = false;
+      }
+    }
+    lastTap = now;
+  });
+
+  overlay.addEventListener("pointermove", (e) => {
+    const r = getImageRect();
+    const cx = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    const cy = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    if (dragging) {
+      updateRedbox(startX, startY, cx, cy);
+    } else {
+      // hover：高亮 bbox 候选
+      const layers = app.layersByLevel[String(app.activeLevel)] || [];
+      const hit = pickLayerContaining(layers, cx / r.width, cy / r.height);
+      if (hit) showCandidate(hit, r);
+      else candidate.classList.remove("show");
+    }
+  });
+
+  overlay.addEventListener("pointerup", (e) => {
+    if (!dragging) return;
+    dragging = false;
+    const r = getImageRect();
+    const cx = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    const cy = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    const x0 = Math.min(startX, cx);
+    const y0 = Math.min(startY, cy);
+    const x1 = Math.max(startX, cx);
+    const y1 = Math.max(startY, cy);
+    // 太小 → 视为点击；尝试吸附
+    if ((x1 - x0) < 12 && (y1 - y0) < 12) {
+      const layers = app.layersByLevel[String(app.activeLevel)] || [];
+      const hit = pickLayerContaining(layers, (x0+x1)/2 / r.width, (y0+y1)/2 / r.height);
+      if (hit) {
+        currentBbox = hit.bbox.slice();
+        renderBboxOnImage(currentBbox);
+        if (overlay._confirmBtn) overlay._confirmBtn.disabled = false;
+        return;
+      }
+      // 没吸附到 → 清空
+      currentBbox = null;
+      redbox.classList.remove("visible");
+      if (overlay._confirmBtn) overlay._confirmBtn.disabled = true;
+      return;
+    }
+    currentBbox = [x0 / r.width, y0 / r.height, x1 / r.width, y1 / r.height];
+    if (overlay._confirmBtn) overlay._confirmBtn.disabled = false;
+  });
+
+  function updateRedbox(x0, y0, x1, y1) {
+    const left = Math.min(x0, x1);
+    const top = Math.min(y0, y1);
+    const w = Math.abs(x1 - x0);
+    const h = Math.abs(y1 - y0);
+    redbox.style.left = left + "px";
+    redbox.style.top = top + "px";
+    redbox.style.width = w + "px";
+    redbox.style.height = h + "px";
+  }
+
+  function renderBboxOnImage(bbox) {
+    const r = getImageRect();
+    redbox.classList.add("visible");
+    redbox.style.left = (bbox[0] * r.width) + "px";
+    redbox.style.top = (bbox[1] * r.height) + "px";
+    redbox.style.width = ((bbox[2] - bbox[0]) * r.width) + "px";
+    redbox.style.height = ((bbox[3] - bbox[1]) * r.height) + "px";
+  }
+
+  function showCandidate(layer, r) {
+    candidate.style.left = (layer.bbox[0] * r.width) + "px";
+    candidate.style.top = (layer.bbox[1] * r.height) + "px";
+    candidate.style.width = ((layer.bbox[2] - layer.bbox[0]) * r.width) + "px";
+    candidate.style.height = ((layer.bbox[3] - layer.bbox[1]) * r.height) + "px";
+    candidate.classList.add("show");
+  }
+}
+
+function pickLayerContaining(layers, rx, ry) {
+  // 找包含 (rx, ry) 的最小 bbox layer
+  let best = null;
+  let bestArea = Infinity;
+  for (const l of layers) {
+    if (!l.bbox || l.bbox.length < 4) continue;
+    const [x0, y0, x1, y1] = l.bbox;
+    if (x0 <= rx && rx <= x1 && y0 <= ry && ry <= y1) {
+      const a = (x1 - x0) * (y1 - y0);
+      if (a > 0 && a < bestArea) {
+        bestArea = a;
+        best = l;
+      }
+    }
+  }
+  return best;
+}
+
+// ============================================================
+// 交互动作
+// ============================================================
+async function onFileChosen(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = "";
+  if (file.size > 12 * 1024 * 1024) {
+    setState({ errorMsg: "图片超过 12MB，请压缩或换一张。" });
+    return;
+  }
+  // 切到 loading
+  setState({
+    state: STATE.LOADING,
+    cropPreviewUrl: URL.createObjectURL(file),
+    loadingTitle: "AI 正在生成 Lv1 爆炸图…",
+    loadingEta: "约 60-90 秒（首次会调用审核 + 识菜名 + 图像生成）",
+    loadingBrief: "",
+    errorMsg: "",
+  });
+  try {
+    const buf = await file.arrayBuffer();
+    const resp = await fetch("/api/start", {
+      method: "POST",
+      headers: { "Content-Type": file.type || "image/jpeg" },
+      body: buf,
+    });
+    const j = await resp.json();
+    if (!resp.ok || !j.ok) throw new Error(j.error || ("HTTP " + resp.status));
+    await enterJourney(j);
+  } catch (err) {
+    setState({ state: STATE.UPLOAD, errorMsg: "生成失败：" + (err.message || err) });
+  }
+}
+
+async function enterJourney(j) {
+  // /api/start 或 /api/drill 都返回 {journey_id, current_level, path, layers_meta}
+  app.journeyId = j.journey_id;
+  app.meta = {
+    journey_id: j.journey_id,
+    current_level: j.current_level,
+    path: j.path,
+    dish_name_zh: (j.path && j.path[0]) ? j.path[0].title_zh : "",
+  };
+  app.layersByLevel[String(j.current_level)] = j.layers_meta || [];
+  app.activeLevel = j.current_level;
+  setState({
+    state: STATE.EXPLORE,
+    selecting: false,
+    showLayers: false,
+  });
+  history.replaceState(null, "", "/j/" + j.journey_id);
+}
+
+async function triggerDrill(bbox) {
+  setState({
+    state: STATE.LOADING,
+    loadingTitle: "AI 正在分解你框选的物体…",
+    loadingEta: "约 60-90 秒",
+    loadingBrief: "",
+    cropPreviewUrl: app.cropPreviewUrl, // 保留前一张已设的（首次为空）
+  });
+  try {
+    const resp = await fetch("/api/drill", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        journey_id: app.journeyId,
+        from_level: app.activeLevel,
+        bbox: bbox,
+      }),
+    });
+    const j = await resp.json();
+    if (!resp.ok || !j.ok) throw new Error(j.error || ("HTTP " + resp.status));
+    await enterJourney(j);
+  } catch (err) {
+    // 失败 → 回到探索视图（保持原 level）+ 显示 banner
+    alert("分解失败：" + (err.message || err));
+    setState({ state: STATE.EXPLORE, selecting: false });
+  }
+}
+
+function switchLevel(level) {
+  if (level === app.activeLevel) return;
+  app.activeLevel = level;
+  app.selecting = false;
+  // 如果该层 layers 尚未拉取（用户跳到一个没看过的层，理论上不会发生），按需补拉
+  const key = String(level);
+  if (!app.layersByLevel[key]) {
+    fetch(`/api/journey/${app.journeyId}/layer/${level}/meta`)
+      .then(r => r.json())
+      .then(j => {
+        if (j.ok) {
+          app.layersByLevel[key] = j.layers || [];
+          render();
+        }
+      });
+  }
+  render();
+}
+
+async function onShareClick() {
+  const url = location.origin + "/j/" + app.journeyId;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "ExploreCipe", url });
+      return;
+    }
+    await navigator.clipboard.writeText(url);
+    alert("已复制链接：" + url);
+  } catch (e) {
+    prompt("复制此链接分享：", url);
+  }
+}
+
+// ============================================================
+// 启动
+// ============================================================
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+async function bootstrap() {
+  const injected = window.__JOURNEY_ID__;
+  const m = location.pathname.match(/^\/j\/([0-9A-Z]+)$/);
+  const jid = injected || (m && m[1]);
+  if (jid) {
+    setState({ state: STATE.LOADING, loadingTitle: "加载已保存的探索…",
+               loadingEta: "稍候", loadingBrief: "", cropPreviewUrl: null });
+    try {
+      const resp = await fetch("/api/journey/" + jid);
+      const j = await resp.json();
+      if (!resp.ok || !j.ok) throw new Error(j.error || "load failed");
+      const meta = j.meta;
+      app.journeyId = meta.journey_id;
+      app.meta = {
+        journey_id: meta.journey_id,
+        current_level: meta.current_level,
+        path: meta.path,
+        dish_name_zh: meta.dish_name_zh,
+      };
+      app.layersByLevel = j.layers || {};
+      app.activeLevel = meta.current_level;
+      setState({ state: STATE.EXPLORE });
+      return;
+    } catch (e) {
+      setState({ state: STATE.UPLOAD,
+                 errorMsg: "无法加载这次探索：" + (e.message || e) });
+      history.replaceState(null, "", "/");
+      return;
+    }
+  }
+  render();
+}
+
+bootstrap();
+</script>
+</body>
+</html>
