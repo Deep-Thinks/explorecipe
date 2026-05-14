@@ -92,7 +92,14 @@ header.brand {
 .upload-sub {
   font-size: 12px;
   color: var(--ink-2);
+  margin: 0 0 10px;
+}
+.upload-warn {
+  font-size: 11px;
+  color: #B89968;
   margin: 0 0 20px;
+  letter-spacing: 0.5px;
+  opacity: 0.85;
 }
 .upload-btn {
   display: inline-block;
@@ -544,8 +551,9 @@ footer.foot {
   <!-- 上传卡片 -->
   <div id="uploadCard" class="upload-card">
     <div class="upload-icon">📸</div>
-    <p class="upload-hint">拍下/上传一张食物照片</p>
+    <p class="upload-hint">拍下/上传一张<strong>食物</strong>照片</p>
     <p class="upload-sub">AI 会把它拆解开来，让你看清它的灵魂</p>
+    <p class="upload-warn">仅识别食物 / 菜品 · 人像、文档、风景图会被拒绝</p>
     <label class="upload-btn" for="fileInput">选择图片</label>
     <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
 

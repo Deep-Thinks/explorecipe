@@ -84,6 +84,20 @@ IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "gpt-image-2")
 # /v1/images/edits 必须带 size；固定竖版爆炸图比例
 IMAGE_SIZE = os.environ.get("IMAGE_SIZE", "1024x1536")
 
+# —— 内容审核：MiniCPM-V 1.3B 多模态小模型 ——
+# 在调用昂贵的 gpt-image-2 之前先做 is_food 二分类，拦截人物/文档/建筑等非食物图。
+# 关闭：MODERATION_ENABLED=false（紧急逃生口，重启服务生效）
+MINICPM_BASE_URL = os.environ.get("MINICPM_BASE_URL",
+                                  "https://llm-center.ali.modelbest.cn/llm").rstrip("/")
+MINICPM_API_KEY = os.environ.get("MINICPM_API_KEY", "")
+MINICPM_MODEL = os.environ.get("MINICPM_MODEL", "MINICPM_23u6wt")  # MiniCPM-V-4.6-1.3B-Instruct
+MODERATION_ENABLED = os.environ.get("MODERATION_ENABLED", "true").strip().lower() != "false"
+MODERATION_MAX_SIDE = 512                    # 喂给小模型前的缩图长边像素
+MODERATION_JPEG_QUALITY = 80
+MODERATION_TIMEOUT = 30                      # 审核单次最长等 30s（小模型实测 ≈1-3s）
+MODERATION_RETRY_TIMES = 3                   # 上游网关偶发 500/socket abort，重试再 fail-closed
+MODERATION_RETRY_BACKOFF = 0.8               # 重试退避基数（短，因为审核必须低延迟）
+
 
 # ============================================================
 # 通用工具
@@ -341,9 +355,203 @@ EXPLAIN_SYSTEM_PROMPT = """你是「食物解构师」，专门为用户讲解�
 
 
 # ============================================================
+# 内容审核：MiniCPM-V 1.3B 多模态判 is_food
+# ============================================================
+MODERATION_SYSTEM_PROMPT = """你是图像内容审核器。判断图片主体内容。
+
+严格只返回 JSON 对象（不要 markdown code block、不要任何额外文字），字段如下：
+{
+  "is_food": true 或 false（布尔，不要写字符串）,
+  "category": 必须从以下值中选一个："food", "person", "building", "document", "scenery", "animal", "object", "other",
+  "has_person": true 或 false（图中是否包含明显人脸或人物）,
+  "confidence": 0.0 到 1.0 之间的浮点数,
+  "reason": 不超过 30 字的中文判定理由
+}
+
+判定标准：
+- 食物/菜品/饮品/食材 → is_food=true, category="food"
+- 人物（即使在吃东西，只要人是主体）→ is_food=false, category="person"
+- 文档/截图/网页/二维码 → is_food=false, category="document"
+- 建筑/风景/动物等其他 → is_food=false, 对应 category"""
+
+
+# 含人物食物图的爆炸 prompt 补丁：让 gpt-image-2 忽略画面中的人，只分解食物本身
+EXPLOSION_PROMPT_IGNORE_PEOPLE = (
+    "\n\nAdditional rule: The reference image may contain people "
+    "(e.g., a chef, a diner, a hand holding the food). IGNORE all human "
+    "figures, faces, hands, and bodies entirely — focus only on the food "
+    "itself and deconstruct that. The output must not show any people."
+)
+
+
+def _resize_for_moderation(img_bytes, max_side=MODERATION_MAX_SIDE,
+                           quality=MODERATION_JPEG_QUALITY):
+    """长边缩到 max_side、转 JPEG。直接喂原图会让 MiniCPM 网关 SSL 断连。"""
+    from PIL import Image  # 局部 import，未启用审核时不强制依赖
+    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+    w, h = img.size
+    scale = max_side / max(w, h)
+    if scale < 1.0:
+        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
+
+
+def call_minicpm_food_check(img_bytes):
+    """调 MiniCPM-V-4.6-1.3B-Instruct 做食物分类。
+
+    返回 dict：is_food / category / has_person / confidence / reason / elapsed。
+    任何失败（密钥缺、网络、解析、响应结构异常）一律抛 RuntimeError，
+    由调用方按 fail-closed 策略处理。
+    """
+    if not MINICPM_API_KEY:
+        raise RuntimeError("MINICPM_API_KEY 未配置（检查 .env）")
+
+    small = _resize_for_moderation(img_bytes)
+
+    b64 = base64.b64encode(small).decode("ascii")
+    payload = {
+        "model": MINICPM_MODEL,
+        "messages": [
+            {"role": "system", "content": MODERATION_SYSTEM_PROMPT},
+            {"role": "user", "content": [
+                {"type": "text", "text": "判断这张图。"},
+                {"type": "image_url", "image_url": {
+                    "url": "data:image/jpeg;base64," + b64,
+                }},
+            ]},
+        ],
+        "temperature": 0.1,
+        "max_tokens": 200,
+    }
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        MINICPM_BASE_URL + "/v1/chat/completions",
+        data=data,
+        headers={
+            "Authorization": "Bearer " + MINICPM_API_KEY,
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    ctx = ssl.create_default_context()
+    t0 = time.time()
+    last_err = None
+    content = None
+    for attempt in range(MODERATION_RETRY_TIMES):
+        # urllib Request 重用 OK：data/headers 都是不可变快照
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=MODERATION_TIMEOUT) as resp:
+                raw = resp.read().decode("utf-8")
+            j = json.loads(raw)
+            # 网关偶发返回 {"code":500,...} 而非标准 OpenAI 结构
+            if "choices" not in j:
+                last_err = "上游错误响应: %s" % raw[:200]
+                if attempt < MODERATION_RETRY_TIMES - 1:
+                    time.sleep(MODERATION_RETRY_BACKOFF * (attempt + 1))
+                continue
+            content = j["choices"][0]["message"]["content"]
+            break  # 成功
+        except urllib.error.HTTPError as e:
+            body_text = ""
+            try:
+                body_text = e.read().decode("utf-8", errors="replace")[:300]
+            except Exception:
+                pass
+            last_err = "HTTP %d: %s" % (e.code, body_text)
+        except Exception as e:
+            last_err = "%s: %s" % (type(e).__name__, e)
+        if attempt < MODERATION_RETRY_TIMES - 1:
+            time.sleep(MODERATION_RETRY_BACKOFF * (attempt + 1))
+
+    elapsed = round(time.time() - t0, 2)
+    if content is None:
+        raise RuntimeError("MiniCPM %d 次重试均失败：%s" % (MODERATION_RETRY_TIMES, last_err))
+
+    parsed = _parse_moderation_json(content)
+    if parsed is None:
+        raise RuntimeError("MiniCPM 返回结构无法解析: %s" % content[:200])
+
+    parsed["elapsed"] = elapsed
+    return parsed
+
+
+def _parse_moderation_json(content):
+    """两阶段解析 MiniCPM 返回：先严格 json.loads，失败用正则抽核心字段。
+
+    1.3B 小模型 JSON 输出偶发不稳（实测见过 `"reason": 中文..."` 漏左引号），
+    但 `is_food` / `has_person` 这两个布尔字段格式很少出错。只要这两个能提到，
+    就足以做拦截判定。
+
+    返回 dict（含 is_food/category/has_person/confidence/reason）或 None。
+    """
+    if not content:
+        return None
+    s = content.strip()
+    if s.startswith("```"):
+        s = s.split("\n", 1)[1] if "\n" in s else s
+        if s.endswith("```"):
+            s = s.rsplit("```", 1)[0]
+    s = s.strip()
+
+    # —— 阶段 1：严格 JSON ——
+    parsed = None
+    try:
+        parsed = json.loads(s)
+    except Exception:
+        pass
+
+    if isinstance(parsed, dict):
+        is_food_raw = parsed.get("is_food")
+        if isinstance(is_food_raw, str):
+            is_food = is_food_raw.strip().lower() in ("true", "yes", "1")
+        else:
+            is_food = bool(is_food_raw)
+        try:
+            confidence = float(parsed.get("confidence") or 0.0)
+        except Exception:
+            confidence = 0.0
+        return {
+            "is_food": is_food,
+            "category": str(parsed.get("category") or "").strip().lower(),
+            "has_person": bool(parsed.get("has_person")),
+            "confidence": confidence,
+            "reason": str(parsed.get("reason") or "").strip()[:60],
+        }
+
+    # —— 阶段 2：正则兜底 ——
+    def _extract_bool(field):
+        m = re.search(
+            r'"' + field + r'"\s*:\s*(true|false|"true"|"false"|"yes"|"no")',
+            s, re.IGNORECASE,
+        )
+        if not m:
+            return None
+        return m.group(1).strip('"').lower() in ("true", "yes")
+
+    def _extract_str(field):
+        m = re.search(r'"' + field + r'"\s*:\s*"([^"\n]*)"', s)
+        return m.group(1).strip() if m else ""
+
+    is_food = _extract_bool("is_food")
+    if is_food is None:
+        return None  # 关键字段都提取不出，认输
+
+    has_person = _extract_bool("has_person")
+    return {
+        "is_food": is_food,
+        "category": _extract_str("category").lower(),
+        "has_person": bool(has_person),
+        "confidence": 0.0,
+        "reason": _extract_str("reason")[:60],
+    }
+
+
+# ============================================================
 # 上游调用：dm-fox gpt-image-2（生成爆炸分解图）
 # ============================================================
-def call_dmfox_explosion(ref_image_bytes):
+def call_dmfox_explosion(ref_image_bytes, ignore_people=False):
     """同步调用 dm-fox。返回 PNG 字节流。失败抛 RuntimeError。
 
     说明：按用户要求，不传 size 参数，让模型自选合适比例。
@@ -357,9 +565,14 @@ def call_dmfox_explosion(ref_image_bytes):
         raise RuntimeError("无法识别上传图片格式（仅支持 png/jpeg/webp/gif）")
     ref_ext = ref_mime.split("/")[-1]
 
+    prompt_text = EXPLOSION_PROMPT
+    if ignore_people:
+        # 审核检测到图中有人 → 追加 prompt 让 gpt-image-2 忽略人物
+        prompt_text = EXPLOSION_PROMPT + EXPLOSION_PROMPT_IGNORE_PEOPLE
+
     body = _build_multipart(boundary, [
         ("model", None, IMAGE_MODEL.encode("utf-8")),
-        ("prompt", None, EXPLOSION_PROMPT.encode("utf-8")),
+        ("prompt", None, prompt_text.encode("utf-8")),
         ("size", None, IMAGE_SIZE.encode("utf-8")),
         ("n", None, b"1"),
         ("image", "food." + ref_ext, ref_image_bytes, ref_mime),
@@ -761,7 +974,55 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         body = self._read_body(MAX_UPLOAD_BYTES)
         if not body:
             raise RuntimeError("缺少上传图片")
-        img_bytes = call_dmfox_explosion(body)
+
+        # —— 内容审核（MiniCPM-V 1.3B）——
+        # 在调用昂贵的 gpt-image-2 之前先做食物分类拦截。
+        # 失败策略：fail-closed（审核服务挂了直接 503，不冒险烧 token-recyclebin）。
+        ignore_people = False
+        if MODERATION_ENABLED:
+            client_ip = self.client_address[0] if self.client_address else "-"
+            try:
+                mod = call_minicpm_food_check(body)
+            except Exception as e:
+                _write_event({
+                    "type": "moderation_error",
+                    "err": str(e)[:200],
+                    "ip": client_ip,
+                })
+                self._send_json(503, {"error": {
+                    "message": "图片审核服务暂时不可用，请稍后重试",
+                }})
+                return
+
+            if not mod["is_food"]:
+                _write_event({
+                    "type": "content_blocked",
+                    "category": mod["category"],
+                    "has_person": mod["has_person"],
+                    "confidence": mod["confidence"],
+                    "reason": mod["reason"],
+                    "elapsed": mod["elapsed"],
+                    "ip": client_ip,
+                })
+                hint = mod["reason"] or mod["category"] or "非食物图片"
+                self._send_json(400, {"error": {
+                    "message": "请上传食物或菜品图片（识别为：%s）" % hint,
+                    "category": mod["category"],
+                    "code": "not_food",
+                }})
+                return
+
+            ignore_people = mod["has_person"]
+            _write_event({
+                "type": "moderation_pass",
+                "category": mod["category"],
+                "has_person": mod["has_person"],
+                "confidence": mod["confidence"],
+                "elapsed": mod["elapsed"],
+                "ip": client_ip,
+            })
+
+        img_bytes = call_dmfox_explosion(body, ignore_people=ignore_people)
         ext = "png" if img_bytes[:8] == b"\x89PNG\r\n\x1a\n" else "jpeg"
 
         # 生成 share_id 并落盘 explosion + 初始 meta

@@ -1,1 +1,3 @@
 openai>=1.50.0
+# Pillow：用于内容审核前的图像缩图（MiniCPM-V 喂图前必须降到 ≤512px，否则上游 SSL 断连）
+Pillow>=10.0.0
