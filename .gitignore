@@ -1,0 +1,34 @@
+# 密钥与本地配置
+.env
+.env.local
+
+# Claude Code 本地备忘（含部署密码等敏感信息）
+CLAUDE.md
+
+# 运行时产物
+logs/
+*.db
+*.db-wal
+*.db-shm
+/Token-Exchange/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# 调试
+*.original.png
+e2e_*.bin
+ui-debug-*.png
+
+# 大的或私有的测试输出
+scripts/probe_*_results/

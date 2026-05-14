@@ -1,0 +1,4 @@
+#!/bin/sh
+# git pull 拉到新 commit 后，自动重启 systemd 服务（无新提交时不会触发）
+echo "[post-merge] 重启 explorecipe..."
+systemctl restart explorecipe && systemctl is-active explorecipe

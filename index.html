@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>ExploreCipe · 解构每一口美味</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --paper: #FBF3E4;
+  --paper-2: #F6E9CC;
+  --ink: #2A2118;
+  --ink-2: #5C4A36;
+  --accent: #E85A2C;          /* 暖橙：CTA、强调线条 */
+  --accent-2: #C84218;         /* 深橙：hover */
+  --magenta: #FF00FF;          /* 与生成图描边同色，用于点击 hover 反馈 */
+  --shadow-soft: 0 4px 16px rgba(60, 40, 20, 0.08);
+  --shadow-card: 0 8px 32px rgba(60, 40, 20, 0.18);
+  --radius-card: 18px;
+  --radius-btn: 999px;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; padding: 0;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Noto Sans SC', 'PingFang SC', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+/* ============ 整体布局 ============ */
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 18px 80px;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+header.brand {
+  text-align: center;
+  padding: 12px 0 28px;
+}
+.brand-title {
+  font-family: 'ZCOOL KuaiLe', 'Ma Shan Zheng', cursive;
+  font-size: 38px;
+  color: var(--ink);
+  letter-spacing: 2px;
+  margin: 0;
+}
+.brand-sub {
+  font-size: 13px;
+  color: var(--ink-2);
+  margin: 4px 0 0;
+  letter-spacing: 1px;
+}
+
+/* ============ 上传卡片 ============ */
+.upload-card {
+  background: #fff;
+  border: 2px dashed #D9C8A8;
+  border-radius: var(--radius-card);
+  padding: 36px 24px;
+  text-align: center;
+  box-shadow: var(--shadow-soft);
+  transition: border-color 0.2s, transform 0.15s;
+}
+.upload-card.drag {
+  border-color: var(--accent);
+  transform: scale(1.01);
+}
+.upload-icon {
+  font-size: 48px;
+  font-family: 'ZCOOL KuaiLe', cursive;
+  color: var(--accent);
+  margin-bottom: 12px;
+  line-height: 1;
+}
+.upload-hint {
+  font-size: 15px;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+.upload-sub {
+  font-size: 12px;
+  color: var(--ink-2);
+  margin: 0 0 20px;
+}
+.upload-btn {
+  display: inline-block;
+  padding: 12px 28px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-btn);
+  font-weight: 500;
+  font-size: 15px;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+.upload-btn:hover { background: var(--accent-2); }
+.upload-btn:active { transform: scale(0.97); }
+input[type="file"] { display: none; }
+
+/* ============ 上传预览 ============ */
+.preview-wrap {
+  margin-top: 18px;
+  display: none;
+  text-align: center;
+}
+.preview-wrap.show { display: block; }
+.preview-img {
+  max-width: 100%;
+  max-height: 180px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-soft);
+}
+.preview-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+.btn-secondary {
+  padding: 10px 20px;
+  background: transparent;
+  color: var(--ink-2);
+  border: 1px solid #D9C8A8;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+}
+.btn-secondary:hover { color: var(--ink); border-color: var(--ink-2); }
+
+/* ============ Loading 卡片 ============ */
+.loading-card {
+  display: none;
+  background: #fff;
+  border-radius: var(--radius-card);
+  padding: 36px 24px;
+  text-align: center;
+  margin-top: 24px;
+  box-shadow: var(--shadow-soft);
+}
+.loading-card.show { display: block; }
+.loading-spinner {
+  width: 48px; height: 48px;
+  border: 4px solid var(--paper-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  margin: 0 auto 16px;
+  animation: spin 0.9s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-stage {
+  font-family: 'Ma Shan Zheng', cursive;
+  font-size: 20px;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+.loading-timer {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+/* ============ 结果区 ============ */
+.result-wrap {
+  display: none;
+  margin-top: 24px;
+}
+.result-wrap.show { display: block; }
+.result-hint {
+  font-family: 'Ma Shan Zheng', cursive;
+  font-size: 18px;
+  color: var(--accent);
+  text-align: center;
+  margin: 0 0 14px;
+}
+.result-stage {
+  position: relative;
+  background: #1a1a1a;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+  touch-action: manipulation;
+}
+.result-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.result-stage { position: relative; }
+.layer-overlays {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.layer-zone {
+  position: absolute;
+  left: 0; right: 0;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.18s, box-shadow 0.18s;
+  border-radius: 6px;
+}
+.layer-zone:hover {
+  background: rgba(232, 90, 44, 0.10);
+  box-shadow: inset 0 0 0 2px rgba(232, 90, 44, 0.55);
+}
+.layer-zone.flash {
+  animation: zoneFlash 0.45s ease-out;
+}
+@keyframes zoneFlash {
+  0% { background: rgba(232, 90, 44, 0.45); }
+  100% { background: rgba(232, 90, 44, 0); }
+}
+.layer-name {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(251, 243, 228, 0.92);
+  color: var(--ink);
+  font-family: 'Ma Shan Zheng', cursive;
+  font-size: 13px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  pointer-events: none;
+  box-shadow: var(--shadow-soft);
+}
+.layer-zone:hover .layer-name { opacity: 1; }
+.analyze-overlay {
+  position: absolute;
+  top: 12px; left: 12px;
+  background: rgba(251, 243, 228, 0.94);
+  border-radius: 12px;
+  padding: 8px 14px 8px 12px;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+  z-index: 5;
+}
+.analyze-overlay.show { display: flex; }
+.analyze-overlay .loading-spinner.small {
+  width: 18px; height: 18px;
+  border-width: 2px;
+  margin: 0;
+}
+.result-actions {
+  margin-top: 14px;
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+/* 点击区域高亮（叠加层）*/
+.result-mask {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+/* ============ 错误条 ============ */
+.error-bar {
+  display: none;
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: #FFF3E8;
+  border: 1px solid #F0BFA0;
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  color: #7A3E1E;
+  font-size: 14px;
+}
+.error-bar.show { display: block; }
+
+/* ============ 科普抽屉 ============ */
+.drawer-mask {
+  position: fixed; inset: 0;
+  background: rgba(20, 14, 8, 0.4);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.25s;
+  z-index: 80;
+}
+.drawer-mask.show { opacity: 1; pointer-events: auto; }
+
+.drawer {
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  background: var(--paper);
+  border-radius: 24px 24px 0 0;
+  max-height: 78vh;
+  transform: translateY(100%);
+  transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+  box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.2);
+  z-index: 90;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.drawer.show { transform: translateY(0); }
+.drawer-handle {
+  width: 40px; height: 4px;
+  background: #D9C8A8;
+  border-radius: 4px;
+  margin: 10px auto 4px;
+  flex-shrink: 0;
+}
+.drawer-close {
+  position: absolute;
+  top: 14px; right: 18px;
+  width: 32px; height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 22px;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+}
+.drawer-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 24px 32px;
+  -webkit-overflow-scrolling: touch;
+}
+.drawer-body.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+}
+
+/* Markdown 输出排版 */
+.md h2 {
+  font-family: 'ZCOOL KuaiLe', cursive;
+  font-size: 22px;
+  color: var(--ink);
+  margin: 0 0 12px;
+  border-bottom: 2px dashed var(--accent);
+  padding-bottom: 6px;
+  display: inline-block;
+}
+.md h3 {
+  font-size: 15px;
+  color: var(--accent-2);
+  margin: 14px 0 4px;
+  font-weight: 500;
+}
+.md p { margin: 6px 0 10px; color: var(--ink); font-size: 14.5px; }
+.md ul { margin: 6px 0 10px; padding-left: 22px; }
+.md li { margin: 4px 0; font-size: 14px; }
+.md strong { color: var(--ink); font-weight: 700; }
+.md em { color: var(--accent-2); font-style: normal; }
+
+.drawer-region-preview {
+  display: block;
+  margin: 0 auto 14px;
+  max-width: 160px;
+  max-height: 160px;
+  border-radius: 12px;
+  background: #1a1a1a;
+  padding: 6px;
+  box-shadow: var(--shadow-soft);
+}
+
+/* ============ 页脚 ============ */
+footer.foot {
+  text-align: center;
+  margin-top: 36px;
+  font-size: 11px;
+  color: var(--ink-2);
+  opacity: 0.7;
+  letter-spacing: 1px;
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header class="brand">
+    <h1 class="brand-title">ExploreCipe</h1>
+    <p class="brand-sub">解构每一口美味 · 厦门大学美食协会</p>
+  </header>
+
+  <!-- 上传卡片 -->
+  <div id="uploadCard" class="upload-card">
+    <div class="upload-icon">📸</div>
+    <p class="upload-hint">拍下/上传一张食物照片</p>
+    <p class="upload-sub">AI 会把它拆解开来，让你看清它的灵魂</p>
+    <label class="upload-btn" for="fileInput">选择图片</label>
+    <input id="fileInput" type="file" accept="image/jpeg,image/png,image/webp" capture="environment">
+
+    <div id="previewWrap" class="preview-wrap">
+      <img id="previewImg" class="preview-img" alt="预览">
+      <div class="preview-actions">
+        <button class="btn-secondary" id="btnReupload">换一张</button>
+        <button class="upload-btn" id="btnGenerate">开始拆解</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Loading -->
+  <div id="loadingCard" class="loading-card">
+    <div class="loading-spinner"></div>
+    <p class="loading-stage" id="loadingStage">正在解析食材...</p>
+    <p class="loading-timer" id="loadingTimer">已等候 0s</p>
+  </div>
+
+  <!-- 结果 -->
+  <div id="resultWrap" class="result-wrap">
+    <p class="result-hint" id="resultHint">正在分析每一层…</p>
+    <div class="result-stage" id="resultStage">
+      <img id="resultImg" class="result-img" alt="爆炸分解图">
+      <div id="layerOverlays" class="layer-overlays"></div>
+      <div id="analyzeOverlay" class="analyze-overlay">
+        <div class="loading-spinner small"></div>
+        <span>step-3.6 正在解读各层…</span>
+      </div>
+    </div>
+    <div class="result-actions">
+      <button class="btn-secondary" id="btnRestart">换张图试试</button>
+    </div>
+  </div>
+
+  <!-- 错误条 -->
+  <div id="errorBar" class="error-bar"></div>
+
+  <footer class="foot">
+    EXPLORECIPE · powered by gpt-image-2 + step-3.6
+  </footer>
+</div>
+
+<!-- 科普卡抽屉 -->
+<div id="drawerMask" class="drawer-mask"></div>
+<aside id="drawer" class="drawer">
+  <div class="drawer-handle"></div>
+  <button class="drawer-close" id="drawerClose">×</button>
+  <div id="drawerBody" class="drawer-body"></div>
+</aside>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+const els = {
+  uploadCard: document.getElementById('uploadCard'),
+  fileInput:  document.getElementById('fileInput'),
+  previewWrap: document.getElementById('previewWrap'),
+  previewImg: document.getElementById('previewImg'),
+  btnReupload: document.getElementById('btnReupload'),
+  btnGenerate: document.getElementById('btnGenerate'),
+  loadingCard: document.getElementById('loadingCard'),
+  loadingStage: document.getElementById('loadingStage'),
+  loadingTimer: document.getElementById('loadingTimer'),
+  resultWrap: document.getElementById('resultWrap'),
+  resultHint: document.getElementById('resultHint'),
+  resultStage: document.getElementById('resultStage'),
+  resultImg: document.getElementById('resultImg'),
+  layerOverlays: document.getElementById('layerOverlays'),
+  analyzeOverlay: document.getElementById('analyzeOverlay'),
+  btnRestart: document.getElementById('btnRestart'),
+  errorBar: document.getElementById('errorBar'),
+  drawerMask: document.getElementById('drawerMask'),
+  drawer: document.getElementById('drawer'),
+  drawerBody: document.getElementById('drawerBody'),
+  drawerClose: document.getElementById('drawerClose'),
+};
+
+let uploadFile = null;
+let resultBlobUrl = null;
+let layers = null;           // 缓存 step-3.6 返回的层数组
+let loadingTimerId = null;
+let loadingStartedAt = 0;
+let busy = false;
+
+const LOADING_STAGES = [
+  { at: 0,   text: '正在解析食材...' },
+  { at: 15,  text: '把每一层小心翼翼分开...' },
+  { at: 35,  text: '正在画奶油的浮力轨迹...' },
+  { at: 60,  text: '调暗灯光，准备摆拍...' },
+  { at: 100, text: '快好了，正在排版英文标签...' },
+  { at: 160, text: '请再耐心一会儿，AI 也在认真画...' },
+  { at: 240, text: '快了快了，最后一层正在飘下来...' },
+];
+
+// ============================================================
+// 工具
+// ============================================================
+function showError(msg) {
+  els.errorBar.textContent = '⚠ ' + msg;
+  els.errorBar.classList.add('show');
+  setTimeout(() => els.errorBar.classList.remove('show'), 7000);
+}
+
+function clearError() { els.errorBar.classList.remove('show'); }
+
+function fileToBlobUrl(file) {
+  return URL.createObjectURL(file);
+}
+
+async function fileToArrayBuffer(file) {
+  return await file.arrayBuffer();
+}
+
+// ============================================================
+// 上传 & 预览
+// ============================================================
+els.fileInput.addEventListener('change', (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  pickFile(file);
+});
+
+function pickFile(file) {
+  if (busy) return;
+  if (!file.type.startsWith('image/')) {
+    showError('请选择图片文件');
+    return;
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    showError('图片过大（>12MB），请压缩后重试');
+    return;
+  }
+  uploadFile = file;
+  els.previewImg.src = fileToBlobUrl(file);
+  els.previewWrap.classList.add('show');
+  clearError();
+}
+
+els.btnReupload.addEventListener('click', () => {
+  if (busy) return;
+  els.fileInput.value = '';
+  els.fileInput.click();
+});
+
+// 拖拽支持（PC）
+['dragenter', 'dragover'].forEach(ev => {
+  els.uploadCard.addEventListener(ev, (e) => {
+    e.preventDefault();
+    els.uploadCard.classList.add('drag');
+  });
+});
+['dragleave', 'drop'].forEach(ev => {
+  els.uploadCard.addEventListener(ev, (e) => {
+    e.preventDefault();
+    els.uploadCard.classList.remove('drag');
+  });
+});
+els.uploadCard.addEventListener('drop', (e) => {
+  const file = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (file) pickFile(file);
+});
+
+// ============================================================
+// 生成爆炸图
+// ============================================================
+els.btnGenerate.addEventListener('click', async () => {
+  if (busy || !uploadFile) return;
+  clearError();
+  busy = true;
+
+  // UI 切换：隐藏上传 + 显示 loading
+  els.uploadCard.style.display = 'none';
+  els.loadingCard.classList.add('show');
+  startLoadingTimer();
+
+  try {
+    const buf = await fileToArrayBuffer(uploadFile);
+    const resp = await fetch('/api/generate-explosion', {
+      method: 'POST',
+      headers: { 'Content-Type': uploadFile.type || 'image/jpeg' },
+      body: buf,
+    });
+    const j = await resp.json().catch(() => null);
+    if (!resp.ok || !j || !j.ok) {
+      const msg = (j && j.error && j.error.message) || ('HTTP ' + resp.status);
+      throw new Error(msg);
+    }
+    const imageB64 = j.image_b64;
+    const mime = j.mime;
+    showResultImage('data:' + mime + ';base64,' + imageB64);
+    // 并行触发 step-3.6 批量解读（不阻塞图片展示）
+    fetchLayers(imageB64);
+  } catch (e) {
+    showError('生成失败：' + (e.message || String(e)));
+    els.uploadCard.style.display = '';
+  } finally {
+    stopLoadingTimer();
+    els.loadingCard.classList.remove('show');
+    busy = false;
+  }
+});
+
+async function fetchLayers(imageB64) {
+  els.analyzeOverlay.classList.add('show');
+  els.resultHint.textContent = 'step-3.6 正在解读各层…';
+  try {
+    const resp = await fetch('/api/explain-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_b64: imageB64 }),
+    });
+    const j = await resp.json().catch(() => null);
+    if (!resp.ok || !j || !j.ok || !Array.isArray(j.layers)) {
+      const msg = (j && j.error && j.error.message) || ('HTTP ' + resp.status);
+      throw new Error(msg);
+    }
+    layers = j.layers;
+    renderLayerZones();
+    els.resultHint.textContent = '点击任何一层，听它讲讲自己 ↓';
+  } catch (e) {
+    showError('解读失败：' + (e.message || String(e)) + ' — 可换张图重试');
+    els.resultHint.textContent = '解读失败，可换张图试试';
+  } finally {
+    els.analyzeOverlay.classList.remove('show');
+  }
+}
+
+function renderLayerZones() {
+  els.layerOverlays.innerHTML = '';
+  if (!layers || !layers.length) return;
+  layers.forEach((L, idx) => {
+    const top = clamp01(L.y_ratio_top) * 100;
+    const bot = clamp01(L.y_ratio_bottom) * 100;
+    const zone = document.createElement('div');
+    zone.className = 'layer-zone';
+    zone.style.top = top + '%';
+    zone.style.height = (bot - top) + '%';
+    zone.dataset.index = idx;
+
+    const tag = document.createElement('div');
+    tag.className = 'layer-name';
+    tag.textContent = L.name_zh || L.name_en || '';
+    zone.appendChild(tag);
+
+    zone.addEventListener('click', () => onLayerClick(idx, zone));
+    els.layerOverlays.appendChild(zone);
+  });
+}
+
+function clamp01(v) {
+  v = Number(v);
+  if (!isFinite(v)) return 0;
+  return Math.max(0, Math.min(1, v));
+}
+
+function onLayerClick(idx, zoneEl) {
+  if (!layers || !layers[idx]) return;
+  zoneEl.classList.remove('flash');
+  // 触发重排让动画重启
+  void zoneEl.offsetWidth;
+  zoneEl.classList.add('flash');
+  showCardInDrawer(layers[idx]);
+}
+
+function showCardInDrawer(layer) {
+  const card = layer.card || ('## ' + (layer.name_zh || '') +
+    '(' + (layer.name_en || '') + ')\n\n（暂无介绍）');
+  els.drawerBody.classList.remove('loading');
+  els.drawerBody.innerHTML = '<div class="md">' + renderMarkdown(card) + '</div>';
+  els.drawer.classList.add('show');
+  els.drawerMask.classList.add('show');
+}
+
+function startLoadingTimer() {
+  loadingStartedAt = Date.now();
+  els.loadingStage.textContent = LOADING_STAGES[0].text;
+  els.loadingTimer.textContent = '已等候 0s';
+  loadingTimerId = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - loadingStartedAt) / 1000);
+    els.loadingTimer.textContent = '已等候 ' + elapsed + 's';
+    // 切换阶段文案
+    let cur = LOADING_STAGES[0];
+    for (const s of LOADING_STAGES) {
+      if (elapsed >= s.at) cur = s;
+    }
+    els.loadingStage.textContent = cur.text;
+  }, 500);
+}
+
+function stopLoadingTimer() {
+  if (loadingTimerId) { clearInterval(loadingTimerId); loadingTimerId = null; }
+}
+
+// ============================================================
+// 渲染结果图
+// ============================================================
+function showResultImage(dataUrl) {
+  els.resultImg.src = dataUrl;
+  els.layerOverlays.innerHTML = '';
+  els.resultWrap.classList.add('show');
+  els.uploadCard.style.display = 'none';
+  els.resultWrap.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+els.btnRestart.addEventListener('click', () => {
+  if (busy) return;
+  layers = null;
+  uploadFile = null;
+  els.resultImg.src = '';
+  els.layerOverlays.innerHTML = '';
+  els.fileInput.value = '';
+  els.previewWrap.classList.remove('show');
+  els.resultWrap.classList.remove('show');
+  els.uploadCard.style.display = '';
+  clearError();
+});
+
+// ============================================================
+// 点击 -> flood-fill -> crop -> 抽屉
+// ============================================================
+// ============================================================
+// 抽屉
+// ============================================================
+function closeDrawer() {
+  els.drawer.classList.remove('show');
+  els.drawerMask.classList.remove('show');
+}
+els.drawerMask.addEventListener('click', closeDrawer);
+els.drawerClose.addEventListener('click', closeDrawer);
+
+// ============================================================
+// 极简 Markdown 渲染：## / ### / **bold** / *em* / - 列表 / 段落
+// ============================================================
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+function renderMarkdown(src) {
+  const lines = src.split(/\r?\n/);
+  let out = [];
+  let inList = false;
+  const flushList = () => { if (inList) { out.push('</ul>'); inList = false; } };
+
+  for (let raw of lines) {
+    const line = raw.replace(/\s+$/, '');
+    if (!line) { flushList(); continue; }
+
+    let m;
+    if ((m = line.match(/^###\s+(.+)$/))) {
+      flushList();
+      out.push('<h3>' + inline(m[1]) + '</h3>');
+      continue;
+    }
+    if ((m = line.match(/^##\s+(.+)$/))) {
+      flushList();
+      out.push('<h2>' + inline(m[1]) + '</h2>');
+      continue;
+    }
+    if ((m = line.match(/^[-*]\s+(.+)$/))) {
+      if (!inList) { out.push('<ul>'); inList = true; }
+      out.push('<li>' + inline(m[1]) + '</li>');
+      continue;
+    }
+    flushList();
+    out.push('<p>' + inline(line) + '</p>');
+  }
+  flushList();
+  return out.join('');
+
+  function inline(s) {
+    s = escapeHtml(s);
+    s = s.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/(^|[^*])\*([^*]+)\*(?!\*)/g, '$1<em>$2</em>');
+    return s;
+  }
+}
+
+</script>
+</body>
+</html>

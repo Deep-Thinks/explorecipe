@@ -1,0 +1,28 @@
+[Unit]
+Description=ExploreCipe local HTTP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/explorecipe
+EnvironmentFile=/opt/explorecipe/.env
+Environment=BIND_HOST=127.0.0.1
+Environment=PORT=18082
+ExecStart=/usr/bin/python3 -u /opt/explorecipe/server.py
+Restart=always
+RestartSec=3
+User=root
+Group=root
+StandardOutput=append:/opt/explorecipe/logs/server.out
+StandardError=append:/opt/explorecipe/logs/server.err
+
+# 安全加固
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/opt/explorecipe
+
+[Install]
+WantedBy=multi-user.target
