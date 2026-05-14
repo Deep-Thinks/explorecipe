@@ -337,10 +337,138 @@
   /* 隐藏 input */
   input[type=file] { display: none; }
 
-  /* 桌面端 (>=1024px)：暂时复用移动端布局，仅放大画布 */
+  /* ============ 桌面端思维导图（>=1024px）============ */
+  .mindmap {
+    display: none;
+    flex: 0 0 380px;
+    background: var(--bg-2);
+    border-right: 1px solid var(--line);
+    padding: 16px 12px 24px 12px;
+    overflow-y: auto;
+  }
+  .mm-title {
+    font-size: 12px;
+    color: var(--fg-mute);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    padding: 4px 8px 12px;
+  }
+  .mm-branch {
+    position: relative;
+    margin-bottom: 4px;
+  }
+  .mm-trunk {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    background: transparent;
+    text-align: left;
+    width: 100%;
+    color: var(--fg);
+    border: 2px solid transparent;
+    transition: background 0.15s ease, border 0.15s ease;
+  }
+  .mm-trunk:hover { background: rgba(255,255,255,0.04); }
+  .mm-trunk.active { border-color: var(--accent); background: var(--accent-soft); }
+  .mm-trunk img {
+    width: 32px; height: 32px;
+    border-radius: 6px;
+    object-fit: cover;
+    background: #000;
+    flex: 0 0 auto;
+  }
+  .mm-trunk-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+  }
+  .mm-trunk-name {
+    font-size: 14px; font-weight: 700;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mm-trunk-lv {
+    font-size: 10px;
+    color: var(--accent);
+    font-weight: 700;
+    letter-spacing: 0.05em;
+  }
+  .mm-leaves {
+    margin-left: 28px;
+    padding-left: 12px;
+    border-left: 2px dashed rgba(255,255,255,0.1);
+    margin-top: 4px;
+    margin-bottom: 8px;
+  }
+  .mm-leaf {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 8px;
+    margin: 2px 0;
+    border-radius: 6px;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--fg-mute);
+    background: transparent;
+    width: 100%;
+    text-align: left;
+    border: 1px dashed transparent;
+    transition: all 0.15s ease;
+  }
+  .mm-leaf:hover {
+    color: var(--fg);
+    background: rgba(255,255,255,0.04);
+    border-color: rgba(255, 107, 61, 0.4);
+  }
+  .mm-leaf.drilled {
+    color: var(--accent);
+    font-weight: 600;
+    border-style: solid;
+    border-color: rgba(255, 107, 61, 0.4);
+  }
+  .mm-leaf .mm-leaf-kind {
+    font-size: 11px;
+    flex: 0 0 auto;
+    opacity: 0.7;
+  }
+  .mm-leaf-name {
+    flex: 1;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mm-leaf-arrow {
+    flex: 0 0 auto;
+    font-size: 14px;
+    color: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+  }
+  .mm-leaf:hover .mm-leaf-arrow,
+  .mm-leaf.drilled .mm-leaf-arrow { opacity: 1; }
+
   @media (min-width: 1024px) {
-    .canvas-img { max-height: calc(100vh - 260px); }
     .upload h1 { font-size: 44px; }
+    .explore { flex-direction: row; }
+    .mindmap { display: block; }
+    .breadcrumb { display: none; }
+    .right-pane {
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-width: 0;
+    }
+    .topbar { padding: 16px 24px; }
+    .canvas-img { max-height: calc(100vh - 220px); }
+    .bottom-bar { padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); }
+    .cta { flex: 0 0 auto; padding: 12px 28px; min-width: 180px; }
+    .cta.secondary { padding: 12px 18px; min-width: auto; }
+    /* 桌面端把 layers-list 默认展开（始终可见） */
+    .layers-list { max-height: 220px; }
+    .layers-list:not(.open) { max-height: 0; }
   }
 </style>
 </head>
@@ -447,6 +575,14 @@ function renderExplore() {
   const wrap = document.createElement("div");
   wrap.className = "explore";
 
+  // ---- 左侧：思维导图（桌面端可见，移动端 CSS 隐藏）----
+  wrap.appendChild(buildMindmap(meta));
+
+  // ---- 右侧栏（桌面端 flex 子项，移动端等同 .explore） ----
+  const right = document.createElement("div");
+  right.className = "right-pane";
+  wrap.appendChild(right);
+
   // ---- topbar ----
   const topbar = document.createElement("div");
   topbar.className = "topbar";
@@ -455,7 +591,7 @@ function renderExplore() {
     <div class="topbar-title">${escapeHtml(meta.dish_name_zh || "ExploreCipe")}</div>
     <button class="topbar-btn" id="copy-btn">分享</button>
   `;
-  wrap.appendChild(topbar);
+  right.appendChild(topbar);
   topbar.querySelector("#home-btn").addEventListener("click", () => {
     if (confirm("回到首页将离开当前探索（已保存到链接，可粘贴回来）。继续？")) {
       setState({ state: STATE.UPLOAD, journeyId: null, meta: null, errorMsg: "" });
@@ -464,7 +600,7 @@ function renderExplore() {
   });
   topbar.querySelector("#copy-btn").addEventListener("click", onShareClick);
 
-  // ---- breadcrumb ----
+  // ---- 面包屑（仅移动端，桌面 CSS 隐藏）----
   const bc = document.createElement("div");
   bc.className = "breadcrumb";
   meta.path.forEach((node, idx) => {
@@ -483,7 +619,7 @@ function renderExplore() {
       bc.appendChild(sep);
     }
   });
-  wrap.appendChild(bc);
+  right.appendChild(bc);
 
   // ---- canvas ----
   const canvasWrap = document.createElement("div");
@@ -509,7 +645,7 @@ function renderExplore() {
   `;
   host.appendChild(overlay);
   canvasWrap.appendChild(host);
-  wrap.appendChild(canvasWrap);
+  right.appendChild(canvasWrap);
 
   // ---- layers list (collapsible) ----
   const list = document.createElement("div");
@@ -533,7 +669,7 @@ function renderExplore() {
       triggerDrill(layer.bbox);
     });
   });
-  wrap.appendChild(list);
+  right.appendChild(list);
 
   // ---- bottom bar ----
   const bb = document.createElement("div");
@@ -549,7 +685,7 @@ function renderExplore() {
       <button class="cta" id="select-btn">✏️ 框选 → 继续分解</button>
     `;
   }
-  wrap.appendChild(bb);
+  right.appendChild(bb);
 
   root.appendChild(wrap);
 
@@ -580,6 +716,93 @@ function renderExplore() {
       setState({ showLayers: !app.showLayers });
     });
   }
+}
+
+// ============================================================
+// 桌面端思维导图
+// ============================================================
+function bboxIou(a, b) {
+  if (!a || !b || a.length < 4 || b.length < 4) return 0;
+  const ix0 = Math.max(a[0], b[0]);
+  const iy0 = Math.max(a[1], b[1]);
+  const ix1 = Math.min(a[2], b[2]);
+  const iy1 = Math.min(a[3], b[3]);
+  const iw = Math.max(0, ix1 - ix0);
+  const ih = Math.max(0, iy1 - iy0);
+  const inter = iw * ih;
+  const areaA = Math.max(0, a[2]-a[0]) * Math.max(0, a[3]-a[1]);
+  const areaB = Math.max(0, b[2]-b[0]) * Math.max(0, b[3]-b[1]);
+  const u = areaA + areaB - inter;
+  return u > 0 ? inter / u : 0;
+}
+
+function buildMindmap(meta) {
+  const mm = document.createElement("div");
+  mm.className = "mindmap";
+
+  const header = document.createElement("div");
+  header.className = "mm-title";
+  header.textContent = "🗺  探索地图 · 共 " + meta.path.length + " 层";
+  mm.appendChild(header);
+
+  meta.path.forEach((node, i) => {
+    const branch = document.createElement("div");
+    branch.className = "mm-branch";
+
+    // 主干节点
+    const trunk = document.createElement("button");
+    trunk.className = "mm-trunk" + (node.level === app.activeLevel ? " active" : "");
+    trunk.innerHTML = `
+      <img src="${node.image_url}" alt="" />
+      <div class="mm-trunk-text">
+        <span class="mm-trunk-lv">LV ${node.level}</span>
+        <span class="mm-trunk-name">${escapeHtml(node.title_zh || ("Lv"+node.level))}</span>
+      </div>
+    `;
+    trunk.addEventListener("click", () => switchLevel(node.level));
+    branch.appendChild(trunk);
+
+    // 该层 layers（即"可分支选项"）
+    const layers = app.layersByLevel[String(node.level)] || [];
+    const nextNode = meta.path[i + 1];
+    const drilledBbox = nextNode && nextNode.parent_picked
+                         && nextNode.parent_picked.bbox;
+
+    if (layers.length) {
+      const leaves = document.createElement("div");
+      leaves.className = "mm-leaves";
+      layers.forEach(layer => {
+        const leaf = document.createElement("button");
+        const drilled = drilledBbox &&
+                        bboxIou(drilledBbox, layer.bbox) > 0.4;
+        leaf.className = "mm-leaf" + (drilled ? " drilled" : "");
+        const emoji = layer.kind === "tool" ? "🔧" : "🥬";
+        leaf.innerHTML = `
+          <span class="mm-leaf-kind">${emoji}</span>
+          <span class="mm-leaf-name">${escapeHtml(layer.name_zh || "?")}</span>
+          <span class="mm-leaf-arrow">${ drilled ? "→" : "›" }</span>
+        `;
+        leaf.addEventListener("click", () => {
+          if (drilled && nextNode) {
+            // 已钻过 → 直接跳到下一层
+            switchLevel(nextNode.level);
+          } else {
+            // 未钻 → 必须先把 active 层设为该 leaf 所在层，再 drill
+            if (node.level !== app.activeLevel) {
+              app.activeLevel = node.level;
+            }
+            triggerDrill(layer.bbox);
+          }
+        });
+        leaves.appendChild(leaf);
+      });
+      branch.appendChild(leaves);
+    }
+
+    mm.appendChild(branch);
+  });
+
+  return mm;
 }
 
 // ============================================================

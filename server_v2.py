@@ -261,7 +261,7 @@ Strict rules (must follow):
     FORBIDDEN words/concepts: 脂肪 / 蛋白质 / 糖类 / 淀粉 / 油脂 / 美拉德反应 / 发酵 / 风味 / 口感 / 调味 / 烘焙
   - All sub-items MUST be more atomic / upstream than "{dish_name}" itself.
   - Do NOT include "{dish_name}" itself as one of the sub-items.
-  - Background: preserve a soft ambient setting matching the source — wooden table or muted neutral, NOT a solid studio backdrop.
+  - Background (CRITICAL): Preserve the ORIGINAL photo's background and ambient lighting exactly — the wooden table, plate edge, surrounding props, light direction, and any out-of-focus elements behind the food. The scene should look like the original food gracefully exploded apart into its component ingredients/tools, floating in its OWN original environment. Do NOT invent a new studio backdrop, do NOT replace with a solid color, do NOT switch to a different table surface.
   - Ingredients on top, tools at the bottom. 80-120 px vertical gap between rows.
 
 Output aspect: vertical (9:16). Rows stack vertically along the entire height.
@@ -294,7 +294,7 @@ Strict rules:
     FORBIDDEN: 脂肪 / 蛋白质 / 糖类 / 淀粉 / 油脂 / 美拉德反应 / 发酵 / 风味 / 口感 / 调味 / 化学反应 / 物理变化
   - All sub-items MUST be more atomic / upstream than the input object.
   - Do NOT include the input object itself as one of the sub-items.
-  - Background: soft ambient setting (wooden table / muted neutral), NOT a solid studio backdrop.
+  - Background (CRITICAL): Inspect the input crop's surrounding environment — wooden table, kitchen counter, factory floor, workshop bench, soil, ocean, etc. — and PRESERVE that ambient setting in the output. The exploded scene should sit in the SAME world the input object was photographed in (same lighting direction, same surface, same atmospheric tone). Do NOT default to a studio backdrop. Do NOT replace the surface with a different material. If the crop background is ambiguous or tightly framed, infer a plausible setting from the object's natural habitat (e.g., a live goose belongs in a farm yard, not a kitchen counter) and render that consistently.
   - Ingredients on top, tools at the bottom. 80-120 px vertical gap between rows.
 
 Output aspect: vertical (9:16). FRESH image, fresh Chinese typography — no remnants of any prior render."""
@@ -685,6 +685,246 @@ def crop_image_bbox(img_bytes, bbox, padding=0.04):
 
 
 # ============================================================
+# 分享卡 · Pillow 合成（永久链接配套）
+# ============================================================
+SHARE_CARD_W = 1080
+SHARE_CARD_H = 1920
+
+FONT_REG_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc"
+FONT_BOLD_PATH = "/usr/share/fonts/opentype/noto/NotoSansCJK-Bold.ttc"
+
+PUBLIC_BASE_URL = os.environ.get(
+    "PUBLIC_BASE_URL_V2",
+    os.environ.get("PUBLIC_BASE_URL", "")
+).rstrip("/")
+
+
+def _share_card_path(jid):
+    return os.path.join(_journey_dir(jid), "share_card.png")
+
+
+def _share_url_for(jid):
+    """返回分享 URL：优先 PUBLIC_BASE_URL_V2，否则用本地 host。"""
+    if PUBLIC_BASE_URL:
+        return PUBLIC_BASE_URL + "/j/" + jid
+    # 本地兜底（仅本机访问能打开，QR 主要测形式）
+    return "http://localhost:%d/j/%s" % (PORT, jid)
+
+
+def _load_font(bold, size):
+    from PIL import ImageFont
+    path = FONT_BOLD_PATH if bold else FONT_REG_PATH
+    # Noto CJK ttc 中 SC 子集通常在 index=2；不强求，任何 index 都能渲染中文
+    try:
+        return ImageFont.truetype(path, size, index=2)
+    except Exception:
+        try:
+            return ImageFont.truetype(path, size)
+        except Exception:
+            return ImageFont.load_default()
+
+
+def _measure(draw, text, font):
+    """返回 (w, h)，兼容老版 Pillow。"""
+    try:
+        bbox = draw.textbbox((0, 0), text, font=font)
+        return bbox[2] - bbox[0], bbox[3] - bbox[1]
+    except Exception:
+        try:
+            return font.getsize(text)
+        except Exception:
+            return (len(text) * font.size // 2, font.size)
+
+
+def _make_qr_image(url, box_size=10, border=2):
+    import qrcode
+    from qrcode.constants import ERROR_CORRECT_M
+    q = qrcode.QRCode(
+        version=None,
+        error_correction=ERROR_CORRECT_M,
+        box_size=box_size,
+        border=border,
+    )
+    q.add_data(url)
+    q.make(fit=True)
+    return q.make_image(fill_color="black", back_color="white").convert("RGB")
+
+
+def render_share_card(jid):
+    """合成 9:16 分享卡。返回 PNG 字节。"""
+    from PIL import Image, ImageDraw, ImageOps
+
+    meta = read_meta(jid)
+    if not meta:
+        raise RuntimeError("journey 不存在")
+
+    path_nodes = meta.get("path") or []
+    if not path_nodes:
+        raise RuntimeError("journey 没有任何层")
+
+    canvas = Image.new("RGB", (SHARE_CARD_W, SHARE_CARD_H), (245, 240, 232))
+    draw = ImageDraw.Draw(canvas)
+
+    # —— 顶部 logo 条 ——
+    title_band_h = 240
+    draw.rectangle((0, 0, SHARE_CARD_W, title_band_h), fill=(28, 24, 22))
+    f_logo = _load_font(True, 72)
+    f_sub = _load_font(False, 30)
+    f_dish = _load_font(True, 60)
+
+    logo_txt = "ExploreCipe"
+    lw, lh = _measure(draw, logo_txt, f_logo)
+    draw.text(((SHARE_CARD_W - lw) // 2, 56), logo_txt, font=f_logo,
+              fill=(255, 107, 61))
+
+    sub_txt = "看一道菜，是怎么被造出来的"
+    sw, sh = _measure(draw, sub_txt, f_sub)
+    draw.text(((SHARE_CARD_W - sw) // 2, 56 + lh + 16), sub_txt, font=f_sub,
+              fill=(240, 235, 228))
+
+    # —— 菜名条 ——
+    dish_txt = meta.get("dish_name_zh") or "未命名探索"
+    dw, dh = _measure(draw, dish_txt, f_dish)
+    draw.text(((SHARE_CARD_W - dw) // 2, title_band_h + 32),
+              dish_txt, font=f_dish, fill=(28, 24, 22))
+
+    levels_txt = "共 %d 层探索 · 钻到「%s」" % (
+        len(path_nodes), (path_nodes[-1].get("title_zh") or ""))
+    f_levels = _load_font(False, 28)
+    lvw, lvh = _measure(draw, levels_txt, f_levels)
+    draw.text(((SHARE_CARD_W - lvw) // 2,
+               title_band_h + 32 + dh + 12),
+              levels_txt, font=f_levels, fill=(120, 110, 100))
+
+    # —— 中部缩略图栈 ——
+    cards_top = title_band_h + 32 + dh + 12 + lvh + 36
+    cards_bottom = SHARE_CARD_H - 460  # 给底部 QR 区留空间
+    n = len(path_nodes)
+    # 限制最多展示 5 张，>5 时取首尾 + 中间几张
+    show_nodes = path_nodes
+    if n > 5:
+        show_nodes = [path_nodes[0], path_nodes[1], path_nodes[2],
+                      path_nodes[-2], path_nodes[-1]]
+    rows = len(show_nodes)
+    row_h = min(180, (cards_bottom - cards_top - 12 * (rows - 1)) // rows)
+    thumb_size = row_h - 12
+
+    f_lv = _load_font(True, 30)
+    f_name = _load_font(True, 36)
+    f_pick = _load_font(False, 24)
+
+    y = cards_top
+    for idx, node in enumerate(show_nodes):
+        # 行卡片：圆角 box（用 rectangle 模拟）
+        card_x0 = 60
+        card_x1 = SHARE_CARD_W - 60
+        draw.rounded_rectangle((card_x0, y, card_x1, y + row_h),
+                               radius=20, fill=(255, 255, 255),
+                               outline=(220, 210, 200), width=2)
+
+        # 缩略图
+        layer_n = node.get("level") or (idx + 1)
+        png_path = _layer_png_path(jid, layer_n)
+        if os.path.exists(png_path):
+            try:
+                with Image.open(png_path) as im:
+                    im = im.convert("RGB")
+                    im = ImageOps.fit(im, (thumb_size, thumb_size),
+                                       method=Image.LANCZOS)
+                # 圆角粘贴
+                mask = Image.new("L", (thumb_size, thumb_size), 0)
+                ImageDraw.Draw(mask).rounded_rectangle(
+                    (0, 0, thumb_size, thumb_size), radius=14, fill=255)
+                canvas.paste(im, (card_x0 + 6, y + 6), mask)
+            except Exception as e:
+                print("[share-card] thumb fail lv%d: %s" % (layer_n, e))
+
+        # 文字
+        text_x = card_x0 + thumb_size + 24
+        lv_txt = "Lv%d" % layer_n
+        draw.text((text_x, y + 18), lv_txt, font=f_lv,
+                  fill=(255, 107, 61))
+        title = node.get("title_zh") or "?"
+        # 截断过长
+        if len(title) > 12:
+            title = title[:11] + "…"
+        draw.text((text_x + 80, y + 14), title, font=f_name,
+                  fill=(28, 24, 22))
+
+        # 副文：parent_picked.brief（drill 的简介）或 "入口"
+        parent = node.get("parent_picked") or {}
+        if node.get("parent_level") is None:
+            sub = "▶ 探索入口"
+        else:
+            sub = "▶ " + (parent.get("brief") or parent.get("name_zh") or "")
+        if len(sub) > 24:
+            sub = sub[:23] + "…"
+        draw.text((text_x, y + 18 + 44), sub, font=f_pick,
+                  fill=(120, 110, 100))
+
+        y += row_h + 12
+
+    if n > 5:
+        # 在中段画一个省略号节点提示
+        f_omit = _load_font(False, 22)
+        omit_txt = "中间 %d 层省略，扫码查看完整路径" % (n - 5)
+        ow, oh = _measure(draw, omit_txt, f_omit)
+        draw.text(((SHARE_CARD_W - ow) // 2, cards_top + row_h * 3),
+                  omit_txt, font=f_omit, fill=(150, 140, 130))
+
+    # —— 底部：QR + 短链 ——
+    bottom_y = SHARE_CARD_H - 440
+    share_url = _share_url_for(jid)
+    try:
+        qr_img = _make_qr_image(share_url, box_size=10, border=2)
+        # 缩到合适大小
+        qr_size = 280
+        qr_img = qr_img.resize((qr_size, qr_size), Image.NEAREST)
+        qx = 80
+        qy = bottom_y + 40
+        # QR 白底卡片
+        draw.rounded_rectangle((qx - 16, qy - 16, qx + qr_size + 16,
+                                qy + qr_size + 16),
+                               radius=20, fill=(255, 255, 255),
+                               outline=(220, 210, 200), width=2)
+        canvas.paste(qr_img, (qx, qy))
+    except Exception as e:
+        print("[share-card] qr fail: %s" % e)
+        qr_size = 0
+
+    # 标语 + 链接
+    f_cta = _load_font(True, 46)
+    f_url = _load_font(False, 26)
+    cta_x = 80 + (qr_size or 280) + 40
+    draw.text((cta_x, bottom_y + 60), "扫码", font=f_cta,
+              fill=(28, 24, 22))
+    draw.text((cta_x, bottom_y + 60 + 60), "继续探索", font=f_cta,
+              fill=(28, 24, 22))
+    # URL 多行（最多 2 行）
+    url_lines = [share_url[i:i + 24] for i in range(0, len(share_url), 24)][:2]
+    uy = bottom_y + 60 + 60 + 72
+    for line in url_lines:
+        draw.text((cta_x, uy), line, font=f_url, fill=(120, 110, 100))
+        uy += 32
+
+    # —— 落盘 ——
+    out_path = _share_card_path(jid)
+    canvas.save(out_path, format="PNG", optimize=True)
+    buf = io.BytesIO()
+    canvas.save(buf, format="PNG", optimize=True)
+    return buf.getvalue()
+
+
+def get_share_card_bytes(jid, force=False):
+    """读缓存或重新合成。返回 PNG bytes。"""
+    p = _share_card_path(jid)
+    if not force and os.path.exists(p):
+        with open(p, "rb") as f:
+            return f.read()
+    return render_share_card(jid)
+
+
+# ============================================================
 # Journey 文件 IO
 # ============================================================
 def _meta_path(jid):
@@ -937,6 +1177,14 @@ def drill_journey(jid, from_level, bbox):
     meta["current_level"] = next_level
     write_meta(jid, meta)
 
+    # 失效旧的分享卡缓存（path 改变了）
+    sc = _share_card_path(jid)
+    if os.path.exists(sc):
+        try:
+            os.remove(sc)
+        except Exception:
+            pass
+
     _write_event({
         "type": "drill_done", "journey_id": jid,
         "from_level": from_level, "to_level": next_level,
@@ -961,6 +1209,7 @@ def drill_journey(jid, from_level, bbox):
 JOURNEY_PATH_RE = re.compile(r"^/journey/([^/]+)/layer/(\d+)$")
 API_LAYER_META_RE = re.compile(r"^/api/journey/([^/]+)/layer/(\d+)/meta$")
 API_JOURNEY_RE = re.compile(r"^/api/journey/([^/]+)$")
+API_SHARE_CARD_RE = re.compile(r"^/api/journey/([^/]+)/share-card$")
 J_PATH_RE = re.compile(r"^/j/([^/]+)$")
 
 
@@ -1070,6 +1319,24 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _send_json(self, 404, {"ok": False, "error": "not found"})
                 return
             _send_json(self, 200, {"ok": True, "level": level, "layers": lm.get("layers") or []})
+            return
+
+        m = API_SHARE_CARD_RE.match(path)
+        if m:
+            jid = m.group(1)
+            if not _is_valid_id(jid) or not read_meta(jid):
+                _send_json(self, 404, {"ok": False, "error": "journey not found"})
+                return
+            qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+            force = "force=1" in qs
+            try:
+                data = get_share_card_bytes(jid, force=force)
+            except Exception as e:
+                traceback.print_exc()
+                _send_json(self, 500, {"ok": False,
+                                       "error": "share-card 合成失败：%s" % e})
+                return
+            _send_bytes(self, 200, "image/png", data, cache_seconds=300)
             return
 
         m = API_JOURNEY_RE.match(path)

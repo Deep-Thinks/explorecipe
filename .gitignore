@@ -30,8 +30,11 @@ venv/
 e2e_*.bin
 ui-debug-*.png
 
-# 第三方工具的会话产物（codex 等）
+# 第三方工具的会话产物（codex / playwright-mcp 等）
 .context/
+.playwright-mcp/
+desktop_*.png
+ui-*.png
 
 # 大的或私有的测试输出
 scripts/probe_*_results/
