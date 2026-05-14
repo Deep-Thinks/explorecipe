@@ -269,7 +269,148 @@ input[type="file"] { display: none; }
   display: flex;
   gap: 12px;
   justify-content: center;
+  flex-wrap: wrap;
 }
+.btn-share {
+  padding: 12px 24px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-btn);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+.btn-share:hover:not(:disabled) { background: var(--accent-2); }
+.btn-share:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-share .ico { margin-right: 4px; }
+
+/* ============ 食物标题 + 金句 ============ */
+.dish-header {
+  text-align: center;
+  margin: 18px 0 12px;
+  display: none;
+}
+.dish-header.show { display: block; }
+.dish-name {
+  font-family: 'ZCOOL KuaiLe', 'Ma Shan Zheng', cursive;
+  font-size: 28px;
+  color: var(--ink);
+  margin: 0 0 4px;
+  letter-spacing: 1px;
+}
+.dish-tagline {
+  font-family: 'Ma Shan Zheng', cursive;
+  font-size: 16px;
+  color: var(--accent-2);
+  margin: 0;
+  font-style: italic;
+}
+.dish-tagline::before { content: '「'; }
+.dish-tagline::after  { content: '」'; }
+
+/* ============ 分享卡模态框 ============ */
+.share-modal-mask {
+  position: fixed; inset: 0;
+  background: rgba(20, 14, 8, 0.7);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s;
+  z-index: 100;
+}
+.share-modal-mask.show { opacity: 1; pointer-events: auto; }
+.share-modal {
+  position: fixed;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%) scale(0.96);
+  background: var(--paper);
+  border-radius: 20px;
+  padding: 18px 18px 22px;
+  width: calc(100% - 36px);
+  max-width: 380px;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  z-index: 110;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s, transform 0.2s;
+  -webkit-overflow-scrolling: touch;
+}
+.share-modal.show {
+  opacity: 1; pointer-events: auto;
+  transform: translate(-50%, -50%) scale(1);
+}
+.share-modal-close {
+  position: absolute;
+  top: 8px; right: 12px;
+  width: 32px; height: 32px;
+  border: none;
+  background: transparent;
+  font-size: 24px;
+  color: var(--ink-2);
+  cursor: pointer;
+  font-family: 'JetBrains Mono', monospace;
+}
+.share-modal-hint {
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-2);
+  margin: 6px 0 12px;
+}
+.share-preview {
+  display: block;
+  width: 100%;
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  margin: 0 0 14px;
+  background: #1a1a1a;
+}
+.share-preview-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 9 / 16;
+  background: #f0e5d0;
+  border-radius: 14px;
+  margin: 0 0 14px;
+  color: var(--ink-2);
+  font-size: 13px;
+}
+.share-actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.share-actions button { flex: 1; padding: 11px 10px; font-size: 14px; }
+.share-modal-url {
+  text-align: center;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11.5px;
+  color: var(--ink-2);
+  word-break: break-all;
+  margin: 0;
+  padding: 8px 12px;
+  background: rgba(232, 90, 44, 0.08);
+  border-radius: 8px;
+}
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 80px;
+  transform: translateX(-50%);
+  background: rgba(42, 33, 24, 0.92);
+  color: var(--paper);
+  font-size: 13px;
+  padding: 10px 18px;
+  border-radius: 20px;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.2s, bottom 0.2s;
+  pointer-events: none;
+}
+.toast.show { opacity: 1; bottom: 100px; }
 
 /* 点击区域高亮（叠加层）*/
 .result-mask {
@@ -427,6 +568,10 @@ footer.foot {
   <!-- 结果 -->
   <div id="resultWrap" class="result-wrap">
     <p class="result-hint" id="resultHint">正在分析每一层…</p>
+    <div id="dishHeader" class="dish-header">
+      <h2 class="dish-name" id="dishName"></h2>
+      <p class="dish-tagline" id="dishTagline"></p>
+    </div>
     <div class="result-stage" id="resultStage">
       <img id="resultImg" class="result-img" alt="爆炸分解图">
       <div id="layerOverlays" class="layer-overlays"></div>
@@ -437,6 +582,7 @@ footer.foot {
     </div>
     <div class="result-actions">
       <button class="btn-secondary" id="btnRestart">换张图试试</button>
+      <button class="btn-share" id="btnShare" disabled><span class="ico">📤</span>分享这一口</button>
     </div>
   </div>
 
@@ -455,6 +601,24 @@ footer.foot {
   <button class="drawer-close" id="drawerClose">×</button>
   <div id="drawerBody" class="drawer-body"></div>
 </aside>
+
+<!-- 分享卡模态框 -->
+<div id="shareModalMask" class="share-modal-mask"></div>
+<div id="shareModal" class="share-modal" role="dialog" aria-modal="true">
+  <button class="share-modal-close" id="shareModalClose" aria-label="关闭">×</button>
+  <p class="share-modal-hint" id="shareModalHint">长按下图保存到相册 ↓</p>
+  <div id="sharePreviewSlot">
+    <div class="share-preview-loading">正在为你生成分享卡…</div>
+  </div>
+  <div class="share-actions">
+    <button class="upload-btn" id="btnSaveShare">保存到相册</button>
+    <button class="btn-secondary" id="btnCopyShareUrl">复制链接</button>
+  </div>
+  <p class="share-modal-url" id="shareUrlText"></p>
+</div>
+
+<!-- toast -->
+<div id="toast" class="toast"></div>
 
 <script>
 // ============================================================
@@ -477,11 +641,24 @@ const els = {
   layerOverlays: document.getElementById('layerOverlays'),
   analyzeOverlay: document.getElementById('analyzeOverlay'),
   btnRestart: document.getElementById('btnRestart'),
+  btnShare: document.getElementById('btnShare'),
   errorBar: document.getElementById('errorBar'),
   drawerMask: document.getElementById('drawerMask'),
   drawer: document.getElementById('drawer'),
   drawerBody: document.getElementById('drawerBody'),
   drawerClose: document.getElementById('drawerClose'),
+  dishHeader: document.getElementById('dishHeader'),
+  dishName: document.getElementById('dishName'),
+  dishTagline: document.getElementById('dishTagline'),
+  shareModal: document.getElementById('shareModal'),
+  shareModalMask: document.getElementById('shareModalMask'),
+  shareModalClose: document.getElementById('shareModalClose'),
+  shareModalHint: document.getElementById('shareModalHint'),
+  sharePreviewSlot: document.getElementById('sharePreviewSlot'),
+  btnSaveShare: document.getElementById('btnSaveShare'),
+  btnCopyShareUrl: document.getElementById('btnCopyShareUrl'),
+  shareUrlText: document.getElementById('shareUrlText'),
+  toast: document.getElementById('toast'),
 };
 
 let uploadFile = null;
@@ -490,6 +667,16 @@ let layers = null;           // 缓存 step-3.6 返回的层数组
 let loadingTimerId = null;
 let loadingStartedAt = 0;
 let busy = false;
+
+// 分享相关 state
+let shareId = '';            // 当前结果对应的永久 share_id
+let shareUrl = '';           // 完整公开 URL
+let dishName = '';
+let tagline = '';
+let resultImageDataUrl = ''; // 当前结果图（dataURL，用于合成分享卡）
+let composedShareDataUrl = ''; // Canvas 合成的分享卡 dataURL（缓存）
+
+const PUBLIC_BASE_URL = window.__PUBLIC_BASE_URL__ || (location.origin);
 
 const LOADING_STAGES = [
   { at: 0,   text: '正在解析食材...' },
@@ -596,9 +783,17 @@ els.btnGenerate.addEventListener('click', async () => {
     }
     const imageB64 = j.image_b64;
     const mime = j.mime;
-    showResultImage('data:' + mime + ';base64,' + imageB64);
+    // 捕获 share_id 并立即更新 URL（让浏览器历史显示永久 URL）
+    shareId = j.share_id || '';
+    shareUrl = j.share_url || '';
+    if (shareId) {
+      try { history.replaceState(null, '', '/g/' + shareId); } catch(_) {}
+    }
+    resultImageDataUrl = 'data:' + mime + ';base64,' + imageB64;
+    composedShareDataUrl = '';  // 清缓存
+    showResultImage(resultImageDataUrl);
     // 并行触发 step-3.6 批量解读（不阻塞图片展示）
-    fetchLayers(imageB64);
+    fetchLayers(imageB64, shareId);
   } catch (e) {
     showError('生成失败：' + (e.message || String(e)));
     els.uploadCard.style.display = '';
@@ -609,14 +804,16 @@ els.btnGenerate.addEventListener('click', async () => {
   }
 });
 
-async function fetchLayers(imageB64) {
+async function fetchLayers(imageB64, sid) {
   els.analyzeOverlay.classList.add('show');
   els.resultHint.textContent = 'step-3.6 正在解读各层…';
   try {
+    const body = { image_b64: imageB64 };
+    if (sid) body.share_id = sid;
     const resp = await fetch('/api/explain-all', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_b64: imageB64 }),
+      body: JSON.stringify(body),
     });
     const j = await resp.json().catch(() => null);
     if (!resp.ok || !j || !j.ok || !Array.isArray(j.layers)) {
@@ -624,13 +821,32 @@ async function fetchLayers(imageB64) {
       throw new Error(msg);
     }
     layers = j.layers;
+    dishName = j.dish_name || '';
+    tagline = j.tagline || '';
+    renderDishHeader();
     renderLayerZones();
+    enableShareButton();
     els.resultHint.textContent = '点击任何一层，听它讲讲自己 ↓';
   } catch (e) {
     showError('解读失败：' + (e.message || String(e)) + ' — 可换张图重试');
     els.resultHint.textContent = '解读失败，可换张图试试';
   } finally {
     els.analyzeOverlay.classList.remove('show');
+  }
+}
+
+function renderDishHeader() {
+  if (dishName || tagline) {
+    els.dishName.textContent = dishName || '解构完成';
+    els.dishTagline.textContent = tagline || '';
+    els.dishTagline.style.display = tagline ? '' : 'none';
+    els.dishHeader.classList.add('show');
+  }
+}
+
+function enableShareButton() {
+  if (shareId) {
+    els.btnShare.disabled = false;
   }
 }
 
@@ -715,14 +931,70 @@ els.btnRestart.addEventListener('click', () => {
   if (busy) return;
   layers = null;
   uploadFile = null;
+  shareId = '';
+  shareUrl = '';
+  dishName = '';
+  tagline = '';
+  resultImageDataUrl = '';
+  composedShareDataUrl = '';
   els.resultImg.src = '';
   els.layerOverlays.innerHTML = '';
   els.fileInput.value = '';
   els.previewWrap.classList.remove('show');
   els.resultWrap.classList.remove('show');
   els.uploadCard.style.display = '';
+  els.dishHeader.classList.remove('show');
+  els.btnShare.disabled = true;
+  try { history.replaceState(null, '', '/'); } catch(_) {}
   clearError();
 });
+
+// ============================================================
+// 恢复模式：通过 /g/{id} 进入时直接拉取并渲染
+// ============================================================
+async function loadShareById(sid) {
+  els.uploadCard.style.display = 'none';
+  els.loadingCard.classList.add('show');
+  els.loadingStage.textContent = '正在召唤这一份解构…';
+  els.loadingTimer.textContent = sid;
+  try {
+    const resp = await fetch('/api/share/' + encodeURIComponent(sid));
+    const j = await resp.json().catch(() => null);
+    if (!resp.ok || !j || !j.ok) {
+      const msg = (j && j.error && j.error.message) || ('HTTP ' + resp.status);
+      throw new Error(msg);
+    }
+    shareId = j.share_id;
+    shareUrl = j.share_url || (PUBLIC_BASE_URL + '/g/' + shareId);
+    dishName = j.dish_name || '';
+    tagline = j.tagline || '';
+    layers = Array.isArray(j.layers) ? j.layers : null;
+    resultImageDataUrl = j.image_url; // 这是 URL 不是 dataURL，但下面 showResultImage 接受 URL 也能显示
+    // 渲染
+    showResultImage(j.image_url);
+    renderDishHeader();
+    if (layers && layers.length) {
+      // 等图片就绪后再渲染 zones（依赖 stage 尺寸）
+      const setupZones = () => { renderLayerZones(); };
+      if (els.resultImg.complete && els.resultImg.naturalWidth > 0) setupZones();
+      else els.resultImg.addEventListener('load', setupZones, { once: true });
+      els.resultHint.textContent = '点击任何一层，听它讲讲自己 ↓';
+    } else {
+      els.resultHint.textContent = '这份解构还在路上，请稍后刷新～';
+    }
+    enableShareButton();
+  } catch (e) {
+    showError('加载失败：' + (e.message || String(e)));
+    els.uploadCard.style.display = '';
+  } finally {
+    els.loadingCard.classList.remove('show');
+  }
+}
+
+// 启动时检查是否进入恢复模式
+if (window.__SHARE_ID__) {
+  loadShareById(window.__SHARE_ID__);
+}
 
 // ============================================================
 // 点击 -> flood-fill -> crop -> 抽屉
@@ -785,6 +1057,318 @@ function renderMarkdown(src) {
     return s;
   }
 }
+
+// ============================================================
+// Toast
+// ============================================================
+let toastTimer = null;
+function showToast(msg, ms) {
+  els.toast.textContent = msg;
+  els.toast.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => els.toast.classList.remove('show'), ms || 1800);
+}
+
+// ============================================================
+// 分享：Canvas 合成竖版分享卡 (1080x1920)
+// ============================================================
+const SHARE_W = 1080;
+const SHARE_H = 1920;
+
+async function ensureFontsLoaded() {
+  // 必须等中文字体真正加载完，否则 Canvas 渲染时会 fallback 到 sans-serif，丢字形
+  if (!document.fonts || !document.fonts.load) return;
+  try {
+    await Promise.all([
+      document.fonts.load('48px "ZCOOL KuaiLe"'),
+      document.fonts.load('700 28px "Ma Shan Zheng"'),
+      document.fonts.load('500 24px "Noto Sans SC"'),
+      document.fonts.load('700 24px "Noto Sans SC"'),
+    ]);
+  } catch (_) { /* 字体没加载完不致命，继续 */ }
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    // 同源直接 load；如有跨域需服务端发 ACAO，这里先尝试 anonymous
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => {
+      // 回退：不带 crossOrigin 再试一次（仅用于绘制，不读像素）
+      const img2 = new Image();
+      img2.onload = () => resolve(img2);
+      img2.onerror = reject;
+      img2.src = src;
+    };
+    img.src = src;
+  });
+}
+
+// 在画布上画一段中文文本，自动按字符断行（中文不需要按词分），返回最终 y
+function drawWrappedText(ctx, text, x, y, maxWidth, lineHeight, maxLines) {
+  if (!text) return y;
+  const chars = Array.from(text);
+  let line = '';
+  let lines = 0;
+  for (const ch of chars) {
+    const test = line + ch;
+    const w = ctx.measureText(test).width;
+    if (w > maxWidth && line.length > 0) {
+      ctx.fillText(line, x, y);
+      lines++;
+      if (maxLines && lines >= maxLines) {
+        // 最后一行加省略号
+        const last = line.slice(0, -1) + '…';
+        ctx.fillText(last, x, y);
+        return y + lineHeight;
+      }
+      line = ch;
+      y += lineHeight;
+    } else {
+      line = test;
+    }
+  }
+  if (line) {
+    ctx.fillText(line, x, y);
+    y += lineHeight;
+  }
+  return y;
+}
+
+// 画一个圆角裁切区域内的图片
+function drawImageRounded(ctx, img, x, y, w, h, r) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+  ctx.lineTo(x + r, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+  ctx.lineTo(x, y + r);
+  ctx.quadraticCurveTo(x, y, x + r, y);
+  ctx.closePath();
+  ctx.clip();
+  // contain 居中
+  const ir = img.width / img.height;
+  const tr = w / h;
+  let dw, dh, dx, dy;
+  if (ir > tr) { // 图更宽：以高为准
+    dh = h; dw = h * ir; dx = x + (w - dw) / 2; dy = y;
+  } else {
+    dw = w; dh = w / ir; dx = x; dy = y + (h - dh) / 2;
+  }
+  ctx.drawImage(img, dx, dy, dw, dh);
+  ctx.restore();
+}
+
+async function composeShareCard() {
+  await ensureFontsLoaded();
+  // 加载主图
+  const explosionUrl = (resultImageDataUrl && resultImageDataUrl.startsWith('data:'))
+    ? resultImageDataUrl
+    : (resultImageDataUrl || '/share-image/' + shareId);
+  let img;
+  try { img = await loadImage(explosionUrl); }
+  catch (e) {
+    throw new Error('图片加载失败：' + (e && e.message || ''));
+  }
+
+  const canvas = document.createElement('canvas');
+  canvas.width = SHARE_W;
+  canvas.height = SHARE_H;
+  const ctx = canvas.getContext('2d');
+
+  // ============ 背景：暖纸色 + 顶/底渐变 ============
+  ctx.fillStyle = '#FBF3E4';
+  ctx.fillRect(0, 0, SHARE_W, SHARE_H);
+  const grad = ctx.createLinearGradient(0, 0, 0, SHARE_H);
+  grad.addColorStop(0, 'rgba(232, 90, 44, 0.08)');
+  grad.addColorStop(0.5, 'rgba(232, 90, 44, 0)');
+  grad.addColorStop(1, 'rgba(232, 90, 44, 0.06)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, SHARE_W, SHARE_H);
+
+  // ============ Top 区：品牌条 ============
+  ctx.fillStyle = '#2A2118';
+  ctx.font = '700 36px "ZCOOL KuaiLe", "Ma Shan Zheng", sans-serif';
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillText('ExploreCipe', 60, 56);
+  ctx.fillStyle = '#5C4A36';
+  ctx.font = '500 24px "Noto Sans SC", sans-serif';
+  ctx.fillText('解构每一口美味', 60, 110);
+
+  // 右上时间戳
+  ctx.fillStyle = '#5C4A36';
+  ctx.font = '500 22px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  const dateStr = new Date().toLocaleDateString('zh-CN', {
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  });
+  ctx.fillText(dateStr, SHARE_W - 60, 60);
+
+  // ============ Image 区：爆炸图（圆角）============
+  const imgX = 60, imgY = 180, imgW = SHARE_W - 120, imgH = 1180;
+  // 阴影
+  ctx.save();
+  ctx.shadowColor = 'rgba(60, 40, 20, 0.20)';
+  ctx.shadowBlur = 30;
+  ctx.shadowOffsetY = 10;
+  ctx.fillStyle = '#1a1a1a';
+  ctx.beginPath();
+  ctx.moveTo(imgX + 24, imgY);
+  ctx.lineTo(imgX + imgW - 24, imgY);
+  ctx.quadraticCurveTo(imgX + imgW, imgY, imgX + imgW, imgY + 24);
+  ctx.lineTo(imgX + imgW, imgY + imgH - 24);
+  ctx.quadraticCurveTo(imgX + imgW, imgY + imgH, imgX + imgW - 24, imgY + imgH);
+  ctx.lineTo(imgX + 24, imgY + imgH);
+  ctx.quadraticCurveTo(imgX, imgY + imgH, imgX, imgY + imgH - 24);
+  ctx.lineTo(imgX, imgY + 24);
+  ctx.quadraticCurveTo(imgX, imgY, imgX + 24, imgY);
+  ctx.fill();
+  ctx.restore();
+  drawImageRounded(ctx, img, imgX, imgY, imgW, imgH, 24);
+
+  // ============ Mid 区：食物名 ============
+  let cy = imgY + imgH + 60;
+  ctx.fillStyle = '#2A2118';
+  ctx.font = '700 60px "ZCOOL KuaiLe", "Ma Shan Zheng", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText(dishName || '解构完成', SHARE_W / 2, cy);
+  cy += 80;
+
+  // 层数标签
+  if (layers && layers.length) {
+    ctx.fillStyle = '#5C4A36';
+    ctx.font = '500 26px "Noto Sans SC", sans-serif';
+    ctx.fillText('共 ' + layers.length + ' 层 · ' +
+      (layers.slice(0, 3).map(L => L.name_zh || L.name_en).filter(Boolean).join(' · ') ||
+       '点击图层探索'),
+      SHARE_W / 2, cy);
+    cy += 56;
+  }
+
+  // ============ Tagline 区：金句 ============
+  if (tagline) {
+    cy += 12;
+    ctx.fillStyle = '#C84218';
+    ctx.font = 'italic 700 36px "Ma Shan Zheng", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('「' + tagline + '」', SHARE_W / 2, cy);
+    cy += 60;
+  }
+
+  // ============ Bottom 区：分享链接 + 品牌 ============
+  // 分隔虚线
+  ctx.strokeStyle = '#D9C8A8';
+  ctx.lineWidth = 2;
+  ctx.setLineDash([12, 8]);
+  ctx.beginPath();
+  ctx.moveTo(80, SHARE_H - 220);
+  ctx.lineTo(SHARE_W - 80, SHARE_H - 220);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // URL 标题
+  ctx.fillStyle = '#5C4A36';
+  ctx.font = '500 22px "Noto Sans SC", sans-serif';
+  ctx.textAlign = 'center';
+  ctx.fillText('扫码 / 复制链接 看动图全貌', SHARE_W / 2, SHARE_H - 184);
+
+  // URL 本身（醒目）
+  ctx.fillStyle = '#2A2118';
+  ctx.font = '700 30px "JetBrains Mono", monospace';
+  const displayUrl = (shareUrl || (PUBLIC_BASE_URL + '/g/' + shareId));
+  // 最长截断
+  ctx.fillText(displayUrl, SHARE_W / 2, SHARE_H - 138);
+
+  // 品牌底
+  ctx.fillStyle = '#5C4A36';
+  ctx.font = '500 22px "Noto Sans SC", sans-serif';
+  ctx.fillText('ExploreCipe · 厦门大学美食协会', SHARE_W / 2, SHARE_H - 80);
+
+  // 角标小爪印（装饰）
+  ctx.fillStyle = '#E85A2C';
+  ctx.font = '700 28px "JetBrains Mono", monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText('#' + (shareId || '------'), SHARE_W - 60, SHARE_H - 52);
+
+  return canvas.toDataURL('image/png');
+}
+
+// ============================================================
+// 分享模态框
+// ============================================================
+async function openShareModal() {
+  if (!shareId) {
+    showToast('分享数据未就绪');
+    return;
+  }
+  els.shareModal.classList.add('show');
+  els.shareModalMask.classList.add('show');
+  els.shareUrlText.textContent = shareUrl || (PUBLIC_BASE_URL + '/g/' + shareId);
+
+  // 先显示 loading 占位
+  if (composedShareDataUrl) {
+    renderSharePreview(composedShareDataUrl);
+    return;
+  }
+  els.sharePreviewSlot.innerHTML = '<div class="share-preview-loading">正在为你生成分享卡…</div>';
+  try {
+    composedShareDataUrl = await composeShareCard();
+    renderSharePreview(composedShareDataUrl);
+  } catch (e) {
+    els.sharePreviewSlot.innerHTML =
+      '<div class="share-preview-loading">生成失败：' +
+      escapeHtml(e.message || '未知错误') + '</div>';
+  }
+}
+
+function renderSharePreview(dataUrl) {
+  els.sharePreviewSlot.innerHTML =
+    '<img class="share-preview" id="sharePreview" alt="分享卡预览" src="' + dataUrl + '">';
+}
+
+function closeShareModal() {
+  els.shareModal.classList.remove('show');
+  els.shareModalMask.classList.remove('show');
+}
+
+els.btnShare.addEventListener('click', openShareModal);
+els.shareModalClose.addEventListener('click', closeShareModal);
+els.shareModalMask.addEventListener('click', closeShareModal);
+
+// 保存到相册：触发下载
+els.btnSaveShare.addEventListener('click', async () => {
+  if (!composedShareDataUrl) {
+    try { composedShareDataUrl = await composeShareCard(); }
+    catch(e) { showToast('生成失败'); return; }
+  }
+  const a = document.createElement('a');
+  const fname = 'explorecipe-' + (shareId || 'share') + '.png';
+  a.href = composedShareDataUrl;
+  a.download = fname;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  showToast('已保存（移动端请长按图片选择保存）', 2400);
+});
+
+// 复制链接
+els.btnCopyShareUrl.addEventListener('click', async () => {
+  const url = shareUrl || (PUBLIC_BASE_URL + '/g/' + shareId);
+  try {
+    await navigator.clipboard.writeText(url);
+    showToast('链接已复制');
+  } catch (e) {
+    // fallback：选中提示
+    showToast('复制失败，请手动选中链接');
+  }
+});
 
 </script>
 </body>

@@ -36,6 +36,14 @@ DOC_ROOT = os.path.dirname(os.path.abspath(__file__))
 LOG_ROOT = os.path.join(DOC_ROOT, "logs")
 IMG_LOG_ROOT = os.path.join(LOG_ROOT, "images")
 EVENT_LOG_PATH = os.path.join(LOG_ROOT, "events.jsonl")
+# 永久分享数据：每个 share_id 一个目录
+SHARE_ROOT = os.path.join(LOG_ROOT, "share")
+# 公开域名（用于 OG meta、二维码）；可被 .env 覆盖
+PUBLIC_BASE_URL = ""  # 运行时再赋值（_load_env 之后）
+
+# share_id 字符集：base32 去掉容易混淆的 0/O/1/I/L
+SHARE_ID_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ"
+SHARE_ID_LEN = 7  # 31^7 ≈ 2.7e10 容量，碰撞概率足够低
 
 
 # ============================================================
@@ -58,6 +66,7 @@ def _load_env():
 _load_env()
 PORT = int(os.environ.get("PORT", "18081"))
 BIND_HOST = os.environ.get("BIND_HOST", "::")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://explorecipe.xmu-cuisine.club").rstrip("/")
 IMAGE_API_KEY = os.environ.get("IMAGE_API_KEY", "")
 STEPFUN_API_KEY = os.environ.get("STEPFUN_API_KEY", "")
 STEPFUN_BASE_URL = os.environ.get("STEPFUN_BASE_URL", "https://api.stepfun.com/v1")
@@ -83,9 +92,104 @@ def _now_iso():
     return datetime.datetime.now().isoformat(timespec="seconds")
 
 
+def _html_attr(s):
+    """转义用于 HTML 属性值的字符串。"""
+    return (str(s)
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace('"', "&quot;")
+            .replace("'", "&#39;"))
+
+
 def _ensure_log_dirs():
     os.makedirs(LOG_ROOT, exist_ok=True)
     os.makedirs(IMG_LOG_ROOT, exist_ok=True)
+    os.makedirs(SHARE_ROOT, exist_ok=True)
+
+
+# ============================================================
+# share_id：永久分享单元
+# ============================================================
+import secrets
+
+
+def _generate_share_id():
+    """生成一个不与现有目录碰撞的 share_id。"""
+    for _ in range(50):
+        sid = "".join(secrets.choice(SHARE_ID_ALPHABET) for _ in range(SHARE_ID_LEN))
+        if not os.path.exists(os.path.join(SHARE_ROOT, sid)):
+            return sid
+    raise RuntimeError("share_id 连续 50 次碰撞，目录可能已饱和")
+
+
+_SHARE_ID_RE = re.compile(r"^[" + SHARE_ID_ALPHABET + "]{" + str(SHARE_ID_LEN) + r"}$")
+
+
+def _is_valid_share_id(sid):
+    return bool(sid) and bool(_SHARE_ID_RE.match(sid))
+
+
+def _share_dir(sid):
+    return os.path.join(SHARE_ROOT, sid)
+
+
+def _persist_explosion(share_id, img_bytes, ext):
+    """把生成的爆炸图 + meta 落盘到 share 目录。"""
+    _ensure_log_dirs()
+    d = _share_dir(share_id)
+    os.makedirs(d, exist_ok=True)
+    img_path = os.path.join(d, "explosion." + ext)
+    with open(img_path, "wb") as f:
+        f.write(img_bytes)
+    meta = {
+        "share_id": share_id,
+        "created_at": _now_iso(),
+        "image_ext": ext,
+        "image_bytes": len(img_bytes),
+        "explain_done": False,
+    }
+    _write_meta(share_id, meta)
+    return img_path
+
+
+def _read_meta(share_id):
+    p = os.path.join(_share_dir(share_id), "meta.json")
+    if not os.path.exists(p):
+        return None
+    try:
+        with open(p, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _write_meta(share_id, meta):
+    p = os.path.join(_share_dir(share_id), "meta.json")
+    with open(p, "w", encoding="utf-8") as f:
+        json.dump(meta, f, ensure_ascii=False, indent=2)
+
+
+def _persist_explain_to_share(share_id, explain_result):
+    """explain_result = {"tagline", "dish_name", "layers"}。
+    把 layers 落盘到 layers.json，tagline / dish_name 合并进 meta.json。
+    """
+    if not _is_valid_share_id(share_id):
+        return
+    d = _share_dir(share_id)
+    if not os.path.isdir(d):
+        # 该 share_id 尚未持久化（少见：explosion 落盘失败）
+        return
+    layers_path = os.path.join(d, "layers.json")
+    with open(layers_path, "w", encoding="utf-8") as f:
+        json.dump(explain_result.get("layers") or [], f, ensure_ascii=False, indent=2)
+    meta = _read_meta(share_id) or {"share_id": share_id, "created_at": _now_iso()}
+    meta["tagline"] = explain_result.get("tagline") or ""
+    meta["dish_name"] = explain_result.get("dish_name") or ""
+    meta["n_layers"] = len(explain_result.get("layers") or [])
+    meta["explain_done"] = True
+    meta["explain_done_at"] = _now_iso()
+    _write_meta(share_id, meta)
 
 
 _log_lock = threading.Lock()
@@ -187,22 +291,35 @@ Studio-grade macro detail, sharp focus. Final image: a magical, clean, magazine-
 # ============================================================
 EXPLAIN_ALL_SYSTEM = """你是「食物解构师」。下方是一张食物的「垂直爆炸分解图」——食物的各成分被竖向分层悬浮展示。
 
-请从上到下列出图中**所有可识别的成分层**（通常 3-7 层），为每一层输出：
-- `index`: 从 0 开始的层序号（最上面是 0）
-- `name_zh`: 中文成分名（简洁，2-6 字）
-- `name_en`: 英文成分名
-- `y_ratio_top`: 该层在图中**上边缘**的相对位置（0.0=顶 ~ 1.0=底，浮点）
-- `y_ratio_bottom`: 该层**下边缘**的相对位置
-- `card`: Markdown 科普卡，结构：开头一行 `## 中文名(EN)`，然后 **一句话本质** / **起源故事** / **营养亮点** / **趣味提示** 四段，每段 30-60 字。不要编精确营养数字。
+请同时输出两件事：
 
-**严格输出 JSON 数组**，外层就是数组本身，不要任何包裹文字、不要 markdown 代码块。例：
+1. 一句**金句 tagline**（≤20 个汉字）：要让人想截图发朋友圈。聚焦图中最有趣/最反常识/最有故事的一点，
+   不要平铺直述配料。不要使用感叹号堆砌。
+   好例子：「这一口里藏着 4 个产地。」「沙茶酱里有 14 种香料。」「米饭比配菜更值得讲。」
 
-[
-  {"index": 0, "name_zh": "面包顶", "name_en": "Brioche Bun Top",
-   "y_ratio_top": 0.04, "y_ratio_bottom": 0.22,
-   "card": "## 面包顶(Brioche Bun Top)\\n\\n**一句话本质**：..."},
-  ...
-]
+2. 一个**食物名 dish_name**（≤8 个汉字）：你认为这道食物的中文菜名（如「鲜虾蛋皮饭团」「沙茶面」）。
+   尽量具体，不要写「一份食物」「美味的菜」。
+
+3. 从上到下列出图中**所有可识别的成分层**（通常 3-7 层），为每一层输出：
+   - `index`: 从 0 开始的层序号（最上面是 0）
+   - `name_zh`: 中文成分名（简洁，2-6 字）
+   - `name_en`: 英文成分名
+   - `y_ratio_top`: 该层在图中**上边缘**的相对位置（0.0=顶 ~ 1.0=底，浮点）
+   - `y_ratio_bottom`: 该层**下边缘**的相对位置
+   - `card`: Markdown 科普卡，结构：开头一行 `## 中文名(EN)`，然后 **一句话本质** / **起源故事** / **营养亮点** / **趣味提示** 四段，每段 30-60 字。不要编精确营养数字。
+
+**严格输出 JSON 对象**，不要任何包裹文字、不要 markdown 代码块。例：
+
+{
+  "tagline": "这一口里藏着 4 个产地。",
+  "dish_name": "鲜虾蛋皮饭团",
+  "layers": [
+    {"index": 0, "name_zh": "面包顶", "name_en": "Brioche Bun Top",
+     "y_ratio_top": 0.04, "y_ratio_bottom": 0.22,
+     "card": "## 面包顶(Brioche Bun Top)\\n\\n**一句话本质**：..."},
+    ...
+  ]
+}
 """
 
 
@@ -365,7 +482,11 @@ def call_stepfun_explain(region_image_bytes):
 
 
 def call_stepfun_explain_all(full_image_bytes, dish_hint=None):
-    """新核心：一次调用让 step-3.6 看整张爆炸图，返回所有层 JSON 数组。"""
+    """新核心：一次调用让 step-3.6 看整张爆炸图。
+
+    返回 dict: {"tagline": str, "dish_name": str, "layers": [...]}
+    兼容旧版：若模型只返回数组，自动包装为 {"tagline": "", "dish_name": "", "layers": [...]}。
+    """
     if not STEPFUN_API_KEY:
         raise RuntimeError("STEPFUN_API_KEY 未配置")
     try:
@@ -404,23 +525,43 @@ def call_stepfun_explain_all(full_image_bytes, dish_hint=None):
             raw = raw.rsplit("```", 1)[0]
     raw = raw.strip()
     try:
-        layers = json.loads(raw)
+        parsed = json.loads(raw)
     except Exception as e:
         _write_event({"type": "explain_all_parse_fail", "elapsed": elapsed,
                       "err": str(e), "raw_preview": raw[:300]})
         raise RuntimeError("step-3.6 返回非 JSON：%s" % raw[:200])
 
-    # 兜底：如果模型返回了对象包裹（{"layers": [...]}）
-    if isinstance(layers, dict):
-        for k, v in layers.items():
+    # 解构出 tagline / dish_name / layers，兼容多种返回结构
+    tagline = ""
+    dish_name = ""
+    layers = None
+
+    if isinstance(parsed, dict):
+        tagline = str(parsed.get("tagline") or "").strip()
+        dish_name = str(parsed.get("dish_name") or "").strip()
+        # layers 可能在 layers / data / result 等键名下
+        for k in ("layers", "data", "result", "items"):
+            v = parsed.get(k)
             if isinstance(v, list):
-                layers = v; break
+                layers = v
+                break
+        # 最后兜底：取第一个 list 类型的值
+        if layers is None:
+            for v in parsed.values():
+                if isinstance(v, list):
+                    layers = v
+                    break
+    elif isinstance(parsed, list):
+        # 旧版兼容：模型只返回数组
+        layers = parsed
 
     if not isinstance(layers, list):
-        raise RuntimeError("step-3.6 返回结构不是数组：%s" % str(layers)[:200])
+        raise RuntimeError("step-3.6 返回结构无 layers 数组：%s" % str(parsed)[:200])
 
-    _write_event({"type": "explain_all_done", "elapsed": elapsed, "n_layers": len(layers)})
-    return layers
+    _write_event({"type": "explain_all_done", "elapsed": elapsed,
+                  "n_layers": len(layers), "has_tagline": bool(tagline),
+                  "has_dish_name": bool(dish_name)})
+    return {"tagline": tagline, "dish_name": dish_name, "layers": layers}
 
 
 # ============================================================
@@ -433,7 +574,23 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):
         path = self.path.split("?", 1)[0]
         if path in ("/", "/index.html"):
-            self._serve_file(os.path.join(DOC_ROOT, "index.html"), "text/html; charset=utf-8")
+            self._serve_index_with_share(None)
+            return
+        # 永久分享页：/g/{share_id}
+        if path.startswith("/g/"):
+            sid = path[len("/g/"):].strip("/")
+            self._serve_index_with_share(sid)
+            return
+        # 分享数据 API：/api/share/{id}
+        if path.startswith("/api/share/"):
+            sid = path[len("/api/share/"):].strip("/")
+            self._handle_share_get(sid)
+            return
+        # 分享图（永久 URL）：/api/share/{id}/explosion
+        # 用一个稳定 URL 而不是 logs/share/... 暴露磁盘结构
+        if path.startswith("/share-image/"):
+            sid = path[len("/share-image/"):].strip("/")
+            self._handle_share_image(sid)
             return
         # 仅放行 static/ 与 logs/images/
         if path.startswith("/static/"):
@@ -443,6 +600,102 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # 用户能拿到自己刚生成的图（只读访问归档目录）
             self._serve_static(path[len("/logs/images/"):], IMG_LOG_ROOT)
             return
+        self.send_error(404, "Not Found")
+
+    def _serve_index_with_share(self, share_id):
+        """返回 index.html。如果 share_id 合法且存在，注入 OG meta 与 window.__SHARE_ID__。"""
+        index_path = os.path.join(DOC_ROOT, "index.html")
+        if not os.path.isfile(index_path):
+            self.send_error(404, "Not Found")
+            return
+        with open(index_path, "rb") as f:
+            html = f.read()
+
+        if share_id and _is_valid_share_id(share_id):
+            meta = _read_meta(share_id)
+            if meta:
+                # 注入 OG meta（微信/小红书会抓预览）+ JS 全局 share_id
+                title = meta.get("dish_name") or "ExploreCipe"
+                desc = meta.get("tagline") or "解构每一口美味 · 厦门大学美食协会"
+                share_url = PUBLIC_BASE_URL + "/g/" + share_id
+                img_url = PUBLIC_BASE_URL + "/share-image/" + share_id
+
+                inject_head = (
+                    '<meta property="og:type" content="website">'
+                    '<meta property="og:title" content="' + _html_attr(title + " · ExploreCipe") + '">'
+                    '<meta property="og:description" content="' + _html_attr(desc) + '">'
+                    '<meta property="og:image" content="' + _html_attr(img_url) + '">'
+                    '<meta property="og:url" content="' + _html_attr(share_url) + '">'
+                    '<meta name="twitter:card" content="summary_large_image">'
+                ).encode("utf-8")
+
+                inject_body = (
+                    '<script>'
+                    'window.__SHARE_ID__=' + json.dumps(share_id) + ';'
+                    'window.__PUBLIC_BASE_URL__=' + json.dumps(PUBLIC_BASE_URL) + ';'
+                    '</script>'
+                ).encode("utf-8")
+
+                # 注入到 </head> 前；body 注入到 <body> 后
+                html = html.replace(b"</head>", inject_head + b"</head>", 1)
+                html = html.replace(b"<body>", b"<body>" + inject_body, 1)
+            # share_id 不存在：仍返回首页（前端 JS 会回退到上传流程）
+        else:
+            # 无 share_id：注入 PUBLIC_BASE_URL 供前端构造分享链接
+            inject_body = (
+                '<script>window.__PUBLIC_BASE_URL__=' +
+                json.dumps(PUBLIC_BASE_URL) + ';</script>'
+            ).encode("utf-8")
+            html = html.replace(b"<body>", b"<body>" + inject_body, 1)
+
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(html)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(html)
+
+    def _handle_share_get(self, share_id):
+        """GET /api/share/{id} → 返回 {ok, dish_name, tagline, layers, image_url, created_at}"""
+        if not _is_valid_share_id(share_id):
+            self._send_json(404, {"error": {"message": "share_id 格式无效"}})
+            return
+        meta = _read_meta(share_id)
+        if not meta:
+            self._send_json(404, {"error": {"message": "share_id 不存在"}})
+            return
+        layers = []
+        layers_path = os.path.join(_share_dir(share_id), "layers.json")
+        if os.path.exists(layers_path):
+            try:
+                with open(layers_path, "r", encoding="utf-8") as f:
+                    layers = json.load(f)
+            except Exception:
+                layers = []
+        self._send_json(200, {
+            "ok": True,
+            "share_id": share_id,
+            "dish_name": meta.get("dish_name") or "",
+            "tagline": meta.get("tagline") or "",
+            "layers": layers,
+            "explain_done": bool(meta.get("explain_done")),
+            "image_url": "/share-image/" + share_id,
+            "share_url": PUBLIC_BASE_URL + "/g/" + share_id,
+            "created_at": meta.get("created_at") or "",
+        })
+
+    def _handle_share_image(self, share_id):
+        """GET /share-image/{id} → 返回 explosion.png/jpeg"""
+        if not _is_valid_share_id(share_id):
+            self.send_error(404, "Not Found")
+            return
+        d = _share_dir(share_id)
+        for ext in ("png", "jpeg", "jpg"):
+            p = os.path.join(d, "explosion." + ext)
+            if os.path.isfile(p):
+                ctype = "image/png" if ext == "png" else "image/jpeg"
+                self._serve_file(p, ctype)
+                return
         self.send_error(404, "Not Found")
 
     def _serve_file(self, abs_path, ctype):
@@ -509,12 +762,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not body:
             raise RuntimeError("缺少上传图片")
         img_bytes = call_dmfox_explosion(body)
-        b64 = base64.b64encode(img_bytes).decode("ascii")
         ext = "png" if img_bytes[:8] == b"\x89PNG\r\n\x1a\n" else "jpeg"
+
+        # 生成 share_id 并落盘 explosion + 初始 meta
+        share_id = _generate_share_id()
+        try:
+            _persist_explosion(share_id, img_bytes, ext)
+        except Exception as e:
+            _write_event({"type": "share_persist_fail", "share_id": share_id, "err": str(e)})
+            # 持久化失败不阻塞用户：仍返回图片，但 share_id 设空
+            share_id = ""
+
+        b64 = base64.b64encode(img_bytes).decode("ascii")
         self._send_json(200, {
             "ok": True,
             "image_b64": b64,
             "mime": "image/" + ext,
+            "share_id": share_id,
+            "share_url": (PUBLIC_BASE_URL + "/g/" + share_id) if share_id else "",
         })
 
     def _handle_explain(self):
@@ -550,8 +815,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             full_bytes = base64.b64decode(b64)
         except Exception:
             raise RuntimeError("image_b64 解码失败")
-        layers = call_stepfun_explain_all(full_bytes, dish_hint=(payload or {}).get("dish_hint"))
-        self._send_json(200, {"ok": True, "layers": layers})
+        result = call_stepfun_explain_all(full_bytes, dish_hint=(payload or {}).get("dish_hint"))
+        # result = {"tagline": ..., "dish_name": ..., "layers": [...]}
+        share_id = (payload or {}).get("share_id") or ""
+        if share_id:
+            _persist_explain_to_share(share_id, result)
+        resp = {"ok": True, "layers": result["layers"], "tagline": result["tagline"],
+                "dish_name": result["dish_name"]}
+        self._send_json(200, resp)
 
     # 静默 stdout 日志（保留 stderr 错误）
     def log_message(self, fmt, *args):
