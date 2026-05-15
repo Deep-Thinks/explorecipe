@@ -1119,23 +1119,25 @@ const STATE = {
   EXPLORE: "explore",
 };
 
-// 后端阶段 → 前端 3 圈映射
-// 圈 1 (审核) / 圈 2 (识菜) / 圈 3 (画图)
+// 后端阶段 → 前端 2 圈映射
+// 圈 1 (识别 · 审核+识菜合并) / 圈 2 (画图)
+// audit  = start 流程：Gemini 一次调用完成审核 + 识菜名
+// identify = drill 流程：Gemini 看 crop 写 brief（仍叫 identify，前端文案统一为"识别"）
 const STAGE_INDEX = {
   queued:     0,
-  moderation: 0,
-  identify:   1,
-  image_gen:  2,
-  extract:    2,
-  done:       3,
+  audit:      0,
+  identify:   0,
+  image_gen:  1,
+  extract:    1,
+  done:       2,
   error:      -1,
 };
 
-const STAGE_LABELS = ["审核", "识菜", "画图"];
+const STAGE_LABELS = ["识别", "画图"];
 const STAGE_QUIPS = {
   queued:     "排队中",
-  moderation: "AI 正在检查这是不是食物",
-  identify:   "AI 在认这是啥菜",
+  audit:      "AI 在认这是不是食物、是什么菜",
+  identify:   "AI 在看这一块是什么",
   image_gen:  "AI 正在画爆炸图",
   extract:    "AI 正在拆出每一行物体",
   done:       "完成啦",
@@ -1480,24 +1482,20 @@ function renderLoading() {
   const screen = document.createElement("div");
   screen.className = "screen s-loading";
 
-  // 3 阶段映射
+  // 2 阶段映射（识别 + 画图）
   const idx = STAGE_INDEX[app.loadingStage] != null
     ? STAGE_INDEX[app.loadingStage]
     : 0;
-  const isDrill = app.loadingType === "drill";
 
   function dotClass(i) {
-    // drill 流程：圈 1（审核）一直 done
-    if (isDrill && i === 0) return "stage-dot done";
-    if (idx === 3) return "stage-dot done";  // 全部完成
-    if (idx > i)  return "stage-dot done";
+    if (idx === 2) return "stage-dot done";  // 全部完成
+    if (idx > i)   return "stage-dot done";
     if (idx === i) return "stage-dot active";
     return "stage-dot";
   }
 
   function dotContent(i) {
-    if (isDrill && i === 0) return "✓";
-    if (idx === 3 || idx > i) return "✓";
+    if (idx === 2 || idx > i) return "✓";
     return String(i + 1);
   }
 
@@ -1515,14 +1513,14 @@ function renderLoading() {
 
     <div class="stage-track" role="progressbar"
          aria-label="生成进度"
-         aria-valuemin="0" aria-valuemax="3"
-         aria-valuenow="${Math.min(3, idx + (idx >= 0 ? 0 : 1))}">
-      ${[0, 1, 2].map(i => `
+         aria-valuemin="0" aria-valuemax="2"
+         aria-valuenow="${Math.min(2, idx + (idx >= 0 ? 0 : 1))}">
+      ${[0, 1].map(i => `
         <div class="stage-step">
           <div class="${dotClass(i)}" aria-label="阶段 ${i + 1} ${STAGE_LABELS[i]}">${dotContent(i)}</div>
           <div class="stage-label">${STAGE_LABELS[i]}</div>
         </div>
-        ${i < 2 ? '<div class="stage-link" aria-hidden="true"></div>' : ""}
+        ${i < 1 ? '<div class="stage-link" aria-hidden="true"></div>' : ""}
       `).join("")}
     </div>
 

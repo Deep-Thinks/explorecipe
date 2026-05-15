@@ -94,18 +94,11 @@ GEMINI_BASE_URL = os.environ.get(
 ).rstrip("/")
 GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "180"))
 
-# —— MiniCPM 内容审核 ——
-MINICPM_BASE_URL = os.environ.get(
-    "MINICPM_BASE_URL", "https://your-minicpm-endpoint.example/llm"
-).rstrip("/")
-MINICPM_API_KEY = os.environ.get("MINICPM_API_KEY", "")
-MINICPM_MODEL = os.environ.get("MINICPM_MODEL", "MINICPM_23u6wt")
-MODERATION_ENABLED = os.environ.get("MODERATION_ENABLED", "true").lower() != "false"
-MODERATION_MAX_SIDE = 512
-MODERATION_TIMEOUT = 30
-# 低于此置信度的 "is_food=false" 判决放行（防止模型把边缘食物图误杀）
-# 默认 0.7：只有模型相当自信「这不是食物」时才拒
-MODERATION_FAIL_OPEN_BELOW = float(os.environ.get("MODERATION_FAIL_OPEN_BELOW", "0.7"))
+# —— 内容审核 ——
+# 走单次 Gemini 调用（与识菜名合并）。
+# 低于此置信度的 "is_food=false" 判决放行（防止模型把边缘食物图误杀）；
+# 默认 0.5：g3f 自身比 MiniCPM 稳，但极个别中转抖动时仍允许 fail-open
+AUDIT_FAIL_OPEN_BELOW = float(os.environ.get("AUDIT_FAIL_OPEN_BELOW", "0.5"))
 
 # —— 通用 ——
 UPSTREAM_TIMEOUT = 600
@@ -300,7 +293,7 @@ REJECTED_DIR = os.path.join(LOG_ROOT, "rejected")
 
 
 def _save_rejected(img_bytes, info, reason="unknown"):
-    """把审核拒绝（或低置信放行）的原图和 MiniCPM 响应落盘以便事后审查。"""
+    """把审核拒绝（或低置信放行）的原图和审核响应落盘以便事后审查。"""
     try:
         os.makedirs(REJECTED_DIR, exist_ok=True)
         ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
@@ -313,10 +306,10 @@ def _save_rejected(img_bytes, info, reason="unknown"):
         with open(png_path, "wb") as f:
             f.write(img_bytes)
         with open(json_path, "w", encoding="utf-8") as f:
-            json.dump({"ts": ts, "reason": reason, "moderation": info,
+            json.dump({"ts": ts, "reason": reason, "audit": info,
                        "size_bytes": len(img_bytes), "mime": mime},
                       f, ensure_ascii=False, indent=2)
-        print("[rejected] saved %s (reason=%s, mod=%s)" % (
+        print("[rejected] saved %s (reason=%s, audit=%s)" % (
             png_path, reason, info))
     except Exception as e:
         print("[rejected] save failed: %s" % e)
@@ -434,13 +427,30 @@ Output aspect: vertical (9:16). FRESH image, fresh Chinese typography — no rem
 # ============================================================
 # Prompts · Gemini
 # ============================================================
-IDENTIFY_DISH_PROMPT = """识别这张食物照片，给出菜名（如果是非中国菜也用中文写）。
+# 入口审核 + 识菜名 · 单次调用合并版（替代旧 MiniCPM 审核 + identify_dish 两跳）
+AUDIT_AND_IDENTIFY_PROMPT = """你是"美食科普"应用的入口图片识别器。一次完成两件事：
+
+A. 审核：图片**主体**是否为可食用的食物 / 菜品 / 饮品 / 食材
+B. 若是食物，给出菜名（中文 + 英文，非中国菜也用中文写）
+
+判断规则：
+- "主体"指占据画面注意力中心的物体；手、餐具、桌面、背景文字属于配角，不影响判断
+- 即使是宣传图、菜单图，只要主体是食物，is_food = true
+- 宠物、玩偶、毛绒玩具、人物、衣物、风景、随手物品、文档明确不是食物，is_food = false
+- 模糊情况（半成品 / 原材料 / 包装食品）按"如果烹饪/打开后就是食物"判 true
 
 严格 JSON 输出，不要额外文字：
 {
+  "is_food": true/false,
+  "category": "food | drink | person | animal | toy | object | scene | document | other",
+  "has_person": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "≤40字中文，说明图里主体是什么",
   "dish_name_zh": "...",
   "dish_name_en": "..."
 }
+
+注意：is_food=false 时 dish_name_zh / dish_name_en 必须为空字符串 ""。
 """
 
 
@@ -498,151 +508,6 @@ def _is_abstract(name_zh):
         if kw in name_zh:
             return True
     return False
-
-
-# ============================================================
-# MiniCPM 内容审核（fail-closed）
-# ============================================================
-MODERATION_SYSTEM_PROMPT = """你是图片内容分类器。判断输入图片：
-1. is_food：图片主体是否为可食用的食物 / 菜品 / 饮品 / 食材
-2. category：food / person / document / scene / animal / object / other
-3. has_person：是否有人物面部
-4. confidence：0-1 浮点
-
-严格 JSON 输出：
-{"is_food": true/false, "category": "...", "has_person": true/false, "confidence": 0.95, "reason": "≤30字中文"}
-"""
-
-
-def _resize_for_moderation(img_bytes, max_side=MODERATION_MAX_SIDE):
-    from PIL import Image
-    img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
-    w, h = img.size
-    scale = max_side / max(w, h)
-    if scale < 1.0:
-        img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=80)
-    return buf.getvalue()
-
-
-def _parse_minicpm(content):
-    if not content:
-        return None
-    s = _strip_json_fence(content)
-    try:
-        j = json.loads(s)
-        if isinstance(j, dict):
-            return {
-                "is_food": bool(j.get("is_food")),
-                "category": str(j.get("category") or "").lower(),
-                "has_person": bool(j.get("has_person")),
-                "confidence": float(j.get("confidence") or 0.0),
-                "reason": str(j.get("reason") or "")[:60],
-            }
-    except Exception:
-        pass
-    # 正则兜底
-    m = re.search(r'"is_food"\s*:\s*(true|false)', s, re.IGNORECASE)
-    if not m:
-        return None
-    return {
-        "is_food": m.group(1).lower() == "true",
-        "category": "",
-        "has_person": False,
-        "confidence": 0.0,
-        "reason": "",
-    }
-
-
-# 注：MiniCPM 的 is_food 字段经常自相矛盾——它会在 category="food"、reason 明确
-# 说"这是汉堡"的同时把 is_food 设为 false（只要图里有人脸或它觉得是"场景"）。
-# 因此不能只看 is_food，必须联合 category + reason 文本兜底。
-_FOOD_CATEGORY_KWS = ("food", "dish", "drink", "beverage", "fruit",
-                     "vegetable", "meat", "snack", "dessert", "cuisine")
-_FOOD_REASON_KWS = (
-    "食物", "食品", "菜", "饭", "面", "饮", "果", "蔬", "肉", "鱼", "蛋",
-    "汉堡", "披萨", "寿司", "饺", "包", "粥", "汤", "甜点", "糕", "饼", "酒",
-    "茶", "咖啡", "豆", "米", "粉", "卷", "排", "烤", "炸", "烧", "炒", "蒸",
-)
-
-
-def _decide_is_food(info):
-    """从 MiniCPM 响应推断是否为食物。返回 (decision, reason_str)。
-
-    决策顺序：
-      1. is_food=true → 直接通过
-      2. category 含食物词 → 通过（修 MiniCPM 自相矛盾：category=food 但 is_food=false）
-      3. reason 文案里出现典型食物词 → 通过
-      4. 否则才真的拒
-    """
-    if bool(info.get("is_food")):
-        return True, "is_food=true"
-    category = str(info.get("category") or "").lower()
-    for kw in _FOOD_CATEGORY_KWS:
-        if kw in category:
-            return True, "category='%s' 含食物字样" % category
-    reason_text = str(info.get("reason") or "")
-    for kw in _FOOD_REASON_KWS:
-        if kw in reason_text:
-            return True, "reason 含食物词「%s」" % kw
-    return False, "category=%s, reason=%s" % (category, reason_text[:80])
-
-
-def call_minicpm_food_check(img_bytes):
-    if not MINICPM_API_KEY:
-        raise RuntimeError("MINICPM_API_KEY 未配置")
-    small = _resize_for_moderation(img_bytes)
-    b64 = base64.b64encode(small).decode("ascii")
-    payload = {
-        "model": MINICPM_MODEL,
-        "messages": [
-            {"role": "system", "content": MODERATION_SYSTEM_PROMPT},
-            {"role": "user", "content": [
-                {"type": "text", "text": "判断这张图。"},
-                {"type": "image_url",
-                 "image_url": {"url": "data:image/jpeg;base64," + b64}},
-            ]},
-        ],
-        "temperature": 0.1,
-        "max_tokens": 200,
-    }
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(
-        MINICPM_BASE_URL + "/v1/chat/completions",
-        data=data,
-        headers={
-            "Authorization": "Bearer " + MINICPM_API_KEY,
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    ctx = ssl.create_default_context()
-    last_err = None
-    content = None
-    t0 = time.time()
-    for attempt in range(3):
-        try:
-            with urllib.request.urlopen(req, context=ctx, timeout=MODERATION_TIMEOUT) as resp:
-                raw = resp.read().decode("utf-8")
-            j = json.loads(raw)
-            if "choices" not in j:
-                last_err = "上游错误: %s" % raw[:200]
-            else:
-                content = j["choices"][0]["message"]["content"]
-                break
-        except Exception as e:
-            last_err = "%s: %s" % (type(e).__name__, e)
-        if attempt < 2:
-            time.sleep(0.8 * (attempt + 1))
-
-    if content is None:
-        raise RuntimeError("MiniCPM 重试均失败：%s" % last_err)
-    parsed = _parse_minicpm(content)
-    if parsed is None:
-        raise RuntimeError("MiniCPM 响应无法解析：%s" % content[:200])
-    parsed["elapsed"] = round(time.time() - t0, 2)
-    return parsed
 
 
 # ============================================================
@@ -802,15 +667,47 @@ def _gemini_call(image_bytes, prompt, mime="image/png", expect_json=True,
     return text, elapsed
 
 
-def call_gemini_identify_dish(image_bytes):
+def call_gemini_audit_and_identify(image_bytes):
+    """单次 Gemini 调用，同时完成"入口审核"与"识菜名"。
+
+    返回 dict：{
+        is_food: bool, category: str, has_person: bool,
+        confidence: float, reason: str,
+        dish_name_zh: str, dish_name_en: str,
+        elapsed: float
+    }
+
+    设计动机：取代旧 MiniCPM 审核 + identify_dish 两跳。MiniCPM 上 is_food 字段
+    自相矛盾（毛绒玩具误放）、且空响应被 fail-open 漏出小猫；g3f 单调用准召率
+    与 MiniCPM 持平且耗时降至 ~2.2s。详见 eval_dataset/summary.md。
+    """
     mime = _detect_image_mime(image_bytes) or "image/jpeg"
     if mime == "application/octet-stream":
         mime = "image/jpeg"
-    parsed, elapsed = _gemini_call(image_bytes, IDENTIFY_DISH_PROMPT, mime=mime,
-                                    expect_json=True)
+    parsed, elapsed = _gemini_call(image_bytes, AUDIT_AND_IDENTIFY_PROMPT,
+                                    mime=mime, expect_json=True)
+    is_food = bool(parsed.get("is_food"))
+    dish_zh = str(parsed.get("dish_name_zh") or "").strip()
+    dish_en = str(parsed.get("dish_name_en") or "").strip()
+    # 防御：模型偶有"is_food=true 但 dish_name 含'不是食物'"自相矛盾，强制改判
+    if is_food and dish_zh and any(
+        kw in dish_zh for kw in ("不是食物", "这是一只", "这是一个玩具", "毛绒玩具")
+    ):
+        is_food = False
+        dish_zh = ""
+        dish_en = ""
+    # 反向防御：is_food=false 时 dish_name 必须为空
+    if not is_food:
+        dish_zh = ""
+        dish_en = ""
     return {
-        "dish_name_zh": str(parsed.get("dish_name_zh") or "").strip() or "未知食物",
-        "dish_name_en": str(parsed.get("dish_name_en") or "").strip(),
+        "is_food": is_food,
+        "category": str(parsed.get("category") or "").strip().lower(),
+        "has_person": bool(parsed.get("has_person")),
+        "confidence": float(parsed.get("confidence") or 0.0),
+        "reason": str(parsed.get("reason") or "")[:80],
+        "dish_name_zh": dish_zh or ("未知食物" if is_food else ""),
+        "dish_name_en": dish_en,
         "elapsed": elapsed,
     }
 
@@ -1222,52 +1119,46 @@ def _pick_layer_by_bbox(layers_list, bbox):
 # 业务编排 · start
 # ============================================================
 def start_journey(image_bytes, on_progress=None):
-    """完整 Lv1 流程。返回 (jid, response_dict)。同步阻塞 ~80s。
+    """完整 Lv1 流程。返回 (jid, response_dict)。同步阻塞 ~50s。
 
-    on_progress(stage_name)：可选回调，stage_name ∈ {'moderation','identify','image_gen','extract'}
+    on_progress(stage_name)：可选回调，stage_name ∈ {'audit','image_gen','extract'}
     """
     t_total = time.time()
     cb = on_progress or (lambda *_a, **_k: None)
 
-    # —— 1. MiniCPM 审核（联合多字段判断，修 is_food 字段不稳的坑） ——
-    cb("moderation")
-    moderation_info = None
-    if MODERATION_ENABLED:
-        info = call_minicpm_food_check(image_bytes)
-        moderation_info = info
-        decision, why = _decide_is_food(info)
-        moderation_info["decided_is_food"] = decision
-        moderation_info["decision_reason"] = why
-        if not decision:
-            conf = float(info.get("confidence") or 0.0)
-            if conf >= MODERATION_FAIL_OPEN_BELOW:
-                _save_rejected(image_bytes, info, reason="not_food_high_conf")
-                raise ValueError(
-                    "REJECT_NOT_FOOD: 上传的图片似乎不是食物（置信度 %.2f，类型：%s）"
-                    % (conf, info.get("category") or "?")
-                )
-            else:
-                print("[moderation] low-conf not_food, fail-open: %s" % info)
-                _save_rejected(image_bytes, info, reason="not_food_low_conf_passed")
-        else:
-            print("[moderation] PASS · %s · raw=%s" % (why, info))
+    # —— 1. Gemini 审核 + 识菜名（单次调用，替代旧 MiniCPM + identify 两跳） ——
+    cb("audit")
+    audit_info = call_gemini_audit_and_identify(image_bytes)
+    if not audit_info["is_food"]:
+        conf = audit_info["confidence"]
+        if conf >= AUDIT_FAIL_OPEN_BELOW:
+            _save_rejected(image_bytes, audit_info, reason="not_food_high_conf")
+            raise ValueError(
+                "REJECT_NOT_FOOD: 上传的图片似乎不是食物（置信度 %.2f，类型：%s）"
+                % (conf, audit_info.get("category") or "?")
+            )
+        # 极低置信兜底：g3f 极个别抖动时给个机会
+        print("[audit] low-conf not_food, fail-open: %s" % audit_info)
+        _save_rejected(image_bytes, audit_info, reason="not_food_low_conf_passed")
+        # 没有 dish_name_zh 时给一个保底
+        if not audit_info.get("dish_name_zh"):
+            audit_info["dish_name_zh"] = "未知食物"
+    else:
+        print("[audit] PASS · %s · dish=%s" % (
+            audit_info.get("reason"), audit_info.get("dish_name_zh")))
 
-    # —— 2. Gemini 识菜名 ——
-    cb("identify")
-    dish = call_gemini_identify_dish(image_bytes)
-
-    # —— 3. 创建 journey 目录 ——
+    # —— 2. 创建 journey 目录 ——
     jid = _generate_journey_id()
     os.makedirs(_journey_dir(jid), exist_ok=True)
 
-    # —— 4. gpt-image-2 生成 Lv1 ——
+    # —— 3. gpt-image-2 生成 Lv1 ——
     cb("image_gen")
-    prompt = LV1_PROMPT_TEMPLATE.format(dish_name=dish["dish_name_zh"])
+    prompt = LV1_PROMPT_TEMPLATE.format(dish_name=audit_info["dish_name_zh"])
     lv1_bytes, gen_elapsed = call_image_gen(image_bytes, prompt)
     with open(_layer_png_path(jid, 1), "wb") as f:
         f.write(lv1_bytes)
 
-    # —— 5. Gemini 提取 Lv1 layers ——
+    # —— 4. Gemini 提取 Lv1 layers ——
     cb("extract")
     try:
         layers, ext_elapsed = call_gemini_extract_layers(lv1_bytes)
@@ -1276,18 +1167,18 @@ def start_journey(image_bytes, on_progress=None):
         layers, ext_elapsed = [], None
     write_layer_meta(jid, 1, layers, ext_elapsed)
 
-    # —— 6. 写 meta.json ——
+    # —— 5. 写 meta.json ——
     meta = {
         "journey_id": jid,
         "created_at": _now_iso(),
-        "dish_name_zh": dish["dish_name_zh"],
-        "dish_name_en": dish["dish_name_en"],
+        "dish_name_zh": audit_info["dish_name_zh"],
+        "dish_name_en": audit_info["dish_name_en"],
         "current_level": 1,
         "path": [
             {
                 "level": 1,
-                "title_zh": dish["dish_name_zh"],
-                "title_en": dish["dish_name_en"],
+                "title_zh": audit_info["dish_name_zh"],
+                "title_en": audit_info["dish_name_en"],
                 "parent_level": None,
                 "parent_picked": None,
                 "image": "layer_1.png",
@@ -1303,10 +1194,10 @@ def start_journey(image_bytes, on_progress=None):
 
     _write_event({
         "type": "start_done", "journey_id": jid,
-        "dish_zh": dish["dish_name_zh"],
+        "dish_zh": audit_info["dish_name_zh"],
         "gen_elapsed": gen_elapsed, "extract_elapsed": ext_elapsed,
         "total_elapsed": round(time.time() - t_total, 2),
-        "moderation": moderation_info,
+        "audit": audit_info,
     })
 
     return jid, {
@@ -1315,7 +1206,7 @@ def start_journey(image_bytes, on_progress=None):
         "current_level": 1,
         "path": meta["path"],
         "layers_meta": layers,
-        "brief": dish["dish_name_zh"],  # Lv1 没有 brief，用菜名兜底
+        "brief": audit_info["dish_name_zh"],  # Lv1 没有 brief，用菜名兜底
     }
 
 
@@ -1591,7 +1482,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             _send_json(self, 200, {
                 "ok": True,
                 "image_size": IMAGE_SIZE_V2,
-                "moderation_enabled": MODERATION_ENABLED,
+                "audit_mode": "gemini_merged",
                 "gemini_model": GEMINI_MODEL,
             })
             return
@@ -1833,8 +1724,8 @@ def main():
             srv.socket.setsockopt(_sock.IPPROTO_IPV6, _sock.IPV6_V6ONLY, 0)
         except Exception:
             pass
-    print("[explorecipe-v2] listening on http://%s:%d  (IMAGE_SIZE=%s, MODERATION=%s)"
-          % (BIND_HOST, PORT, IMAGE_SIZE_V2, MODERATION_ENABLED))
+    print("[explorecipe-v2] listening on http://%s:%d  (IMAGE_SIZE=%s, AUDIT=gemini_merged)"
+          % (BIND_HOST, PORT, IMAGE_SIZE_V2))
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

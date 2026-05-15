@@ -1,8 +1,12 @@
 # ExploreCipe · LLM Prompt 与调用链路总览
 
-> 本文盘点 `server_v2.py` 里所有上游 LLM 调用，覆盖 4 个模型、4 段 prompt、2 条业务链路。
+> 本文盘点 `server_v2.py` 里所有上游 LLM 调用，覆盖 2 个模型、4 段 prompt、2 条业务链路。
 > 出处文件：`server_v2.py`（v2 后端，端口 18083）。
 > 阅读顺序建议：先看 §1 总览表 → §2 调用链路图 → §3 prompt 全文。
+>
+> **2026-05-15 重大变更**：MiniCPM 入口审核 + Gemini identify_dish 合并为单次 Gemini 调用
+> (`call_gemini_audit_and_identify`)，从 2 跳变 1 跳，前置阶段耗时从 ~17s 降至 ~2.2s。
+> 决策依据见 `eval_dataset/summary.md`（7 张样本上 g3f 与 MiniCPM 拦截率都是 100%、g3f 平均 2.2s vs MiniCPM 14.97s；MiniCPM 在生产端出现过两次"自相矛盾误放"与"空响应 fail-open"事故）。
 
 ---
 
@@ -10,11 +14,11 @@
 
 | 角色 | 模型 | base_url | 调用函数 | env key |
 |---|---|---|---|---|
-| 内容审核 | `MINICPM_23u6wt`（MiniCPM-V，多模态） | `MINICPM_BASE_URL`（任意 OpenAI 兼容反代） | `call_minicpm_food_check` | `MINICPM_API_KEY` |
-| 文本理解 | `gemini-3-flash-preview` | google-genai SDK | `call_gemini_identify_dish` / `call_gemini_extract_layers` / `call_gemini_brief` | `GEMINI_API_KEY` |
+| 入口审核 + 识菜名（合并） | `gemini-3-flash-preview` | `GEMINI_BASE_URL`（OpenAI 兼容中转） | `call_gemini_audit_and_identify` | `GEMINI_API_KEY` |
+| OCR / 视觉理解 | `gemini-3-flash-preview` | 同上 | `call_gemini_extract_layers` / `call_gemini_brief` | 同上 |
 | 图像生成 | `gpt-image-2`（image-edit 接口） | `IMAGE_UPSTREAM_URL`（任意 OpenAI 兼容反代） | `call_image_gen` | `IMAGE_API_KEY` |
 
-> 注：所有 Gemini 调用都关闭了 thinking（`thinking_budget=0`），求快不求深。
+> 注：所有 Gemini 调用都走 OpenAI 兼容的 `/v1/chat/completions`（生产服务器无法直连 google）。
 > 注：gpt-image-2 走 image-edit 接口，但 Lv N+1 的 prompt 里强制声明「FRESH composition, NOT an edit of the input」——是 §3.5 苦涩经验之一。
 
 ---
@@ -26,25 +30,22 @@
 ```
 用户上传 image_bytes
    │
-   ├─[1] MiniCPM 审核   call_minicpm_food_check
-   │      ↓ JSON {is_food, category, has_person, confidence, reason}
-   │      ↓ _decide_is_food() 联合判定（修 is_food 字段不稳）
-   │      └ 不是食物 & 高置信 → 拒绝（REJECT_NOT_FOOD）
+   ├─[1] Gemini 审核 + 识菜名   call_gemini_audit_and_identify
+   │      ↓ JSON {is_food, category, has_person, confidence, reason,
+   │      ↓        dish_name_zh, dish_name_en}
+   │      └ is_food=false & 置信度 >= AUDIT_FAIL_OPEN_BELOW(默认0.5) → 拒绝（REJECT_NOT_FOOD）
    │
-   ├─[2] Gemini 识菜名  call_gemini_identify_dish
-   │      ↓ JSON {dish_name_zh, dish_name_en}
-   │
-   ├─[3] gpt-image-2 出 Lv1 爆炸图   call_image_gen
+   ├─[2] gpt-image-2 出 Lv1 爆炸图   call_image_gen
    │      ref_image = 用户原图
    │      prompt    = LV1_PROMPT_TEMPLATE.format(dish_name=...)
    │      ↓ layer_1.png
    │
-   └─[4] Gemini 提取 layers   call_gemini_extract_layers
+   └─[3] Gemini 提取 layers   call_gemini_extract_layers
           ↓ JSON {layers: [{kind, name_zh, name_en, desc_30, bbox}, ...]}
           ↓ 落盘 layer_1.json，前端渲染热区
 ```
 
-总耗时：约 60–90s（瓶颈是 [3] gpt-image-2）。
+总耗时：约 50–60s（瓶颈是 [2] gpt-image-2，前置 audit ~2.2s）。
 
 ### 2.2 链路 B · `POST /api/drill`（用户点击爆炸图里某个物体，钻入下一层）
 
@@ -74,44 +75,49 @@
 
 ## 3. Prompt 全文
 
-### 3.1 MiniCPM 审核 · system prompt
+### 3.1 Gemini 入口审核 + 识菜名（合并）
 
-> 出处：`server_v2.py::MODERATION_SYSTEM_PROMPT`（约 line 502）
-> user 消息固定为「判断这张图。」+ 图片 base64
-
-```text
-你是图片内容分类器。判断输入图片：
-1. is_food：图片主体是否为可食用的食物 / 菜品 / 饮品 / 食材
-2. category：food / person / document / scene / animal / object / other
-3. has_person：是否有人物面部
-4. confidence：0-1 浮点
-
-严格 JSON 输出：
-{"is_food": true/false, "category": "...", "has_person": true/false, "confidence": 0.95, "reason": "≤30字中文"}
-```
-
-**后处理（`_decide_is_food`）**：MiniCPM 经常 `category="food"、reason="这是汉堡"` 同时 `is_food=false`，所以决策顺序是：
-1. `is_food=true` → 通过
-2. `category` 命中食物词（food/dish/drink/...） → 通过
-3. `reason` 命中食物词（食物/菜/饭/汉堡/...） → 通过
-4. 否则拒，但若 `confidence < MODERATION_FAIL_OPEN_BELOW`（默认 0.7）→ fail-open 放行
-
----
-
-### 3.2 Gemini 识菜名
-
-> 出处：`server_v2.py::IDENTIFY_DISH_PROMPT`（约 line 433）
+> 出处：`server_v2.py::AUDIT_AND_IDENTIFY_PROMPT`
 > 入参：用户原始上传图
+> 调用：`call_gemini_audit_and_identify`
+>
+> **替代**：旧 MiniCPM 审核（`MODERATION_SYSTEM_PROMPT`）+ Gemini 识菜名（`IDENTIFY_DISH_PROMPT`）两段
 
 ```text
-识别这张食物照片，给出菜名（如果是非中国菜也用中文写）。
+你是"美食科普"应用的入口图片识别器。一次完成两件事：
+
+A. 审核：图片**主体**是否为可食用的食物 / 菜品 / 饮品 / 食材
+B. 若是食物，给出菜名（中文 + 英文，非中国菜也用中文写）
+
+判断规则：
+- "主体"指占据画面注意力中心的物体；手、餐具、桌面、背景文字属于配角，不影响判断
+- 即使是宣传图、菜单图，只要主体是食物，is_food = true
+- 宠物、玩偶、毛绒玩具、人物、衣物、风景、随手物品、文档明确不是食物，is_food = false
+- 模糊情况（半成品 / 原材料 / 包装食品）按"如果烹饪/打开后就是食物"判 true
 
 严格 JSON 输出，不要额外文字：
 {
+  "is_food": true/false,
+  "category": "food | drink | person | animal | toy | object | scene | document | other",
+  "has_person": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "≤40字中文，说明图里主体是什么",
   "dish_name_zh": "...",
   "dish_name_en": "..."
 }
+
+注意：is_food=false 时 dish_name_zh / dish_name_en 必须为空字符串 ""。
 ```
+
+**后处理（`call_gemini_audit_and_identify`）**：
+1. 防御 1：若 `is_food=true` 但 `dish_name_zh` 含「不是食物 / 这是一只 / 玩具」等字样 → 强制改判为 `is_food=false`
+2. 防御 2：`is_food=false` 时强制清空 `dish_name_zh / dish_name_en`
+3. 拒绝逻辑：`is_food=false` 且 `confidence >= AUDIT_FAIL_OPEN_BELOW`（默认 0.5）→ `REJECT_NOT_FOOD`；否则极低置信兜底放行（仍归档到 `logs/rejected/`）
+
+**为什么去掉 MiniCPM（2026-05-15）**：
+- 生产事故 `VUPC689`：用户上传毛绒熊，MiniCPM 返回 `is_food=true, category="plush toy"`（字段自相矛盾），联合判定也救不了
+- 生产事故 `GHW6QXJ`：用户上传小猫，MiniCPM 返回空响应 `conf=0.0`，被低置信 fail-open 放行
+- 7 张图对照评测显示 g3f 拦截率与 MiniCPM 持平且耗时 ~2.2s vs ~15s（详见 `eval_dataset/summary.md`）
 
 ---
 
@@ -276,10 +282,9 @@ Output aspect: vertical (9:16). FRESH image, fresh Chinese typography — no rem
 
 | 调用 | 重试次数 | 退避 | 失败兜底 |
 |---|---|---|---|
-| MiniCPM | 3 | `0.8 × (attempt+1)` 秒线性 | 抛 RuntimeError，上层 500 |
-| Gemini identify | 不重试 | — | 抛错，上层 500 |
-| Gemini extract | 不重试 | — | 在 `start_journey` / `drill_journey` 内捕获，`layers=[]` 继续 |
-| Gemini brief | 不重试 | — | 在 `drill_journey` 内捕获，用父层 `name_zh` 兜底 |
+| Gemini audit+identify | 3（`_gemini_call` 内置） | `1.5 × (attempt+1)` 秒线性 | 抛 RuntimeError，上层 500 |
+| Gemini extract | 3（`_gemini_call` 内置） | 同上 | 在 `start_journey` / `drill_journey` 内捕获，`layers=[]` 继续 |
+| Gemini brief | 3（`_gemini_call` 内置） | 同上 | 在 `drill_journey` 内捕获，用父层 `name_zh` 兜底 |
 | gpt-image-2 | 3（`RETRY_TIMES`） | `2.0 × (attempt+1)` 秒线性退避 | 抛 RuntimeError，上层 500 |
 
 > gpt-image-2 上游间歇性故障是已知坑（CLAUDE.md 暗坑 #1），所以重试是必须的。
