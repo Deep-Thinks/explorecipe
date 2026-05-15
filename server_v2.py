@@ -86,9 +86,13 @@ IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "gpt-image-2")
 # 默认 9:16；若 PR-0 烟雾测试失败可改为 1024x1536 回退
 IMAGE_SIZE_V2 = os.environ.get("IMAGE_SIZE_V2", "1024x1792")
 
-# —— Gemini ——
+# —— Gemini（通过 OpenAI 兼容中转，因为生产服务器无法直连 Google） ——
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3-flash-preview")
+GEMINI_BASE_URL = os.environ.get(
+    "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com"
+).rstrip("/")
+GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "180"))
 
 # —— MiniCPM 内容审核 ——
 MINICPM_BASE_URL = os.environ.get(
@@ -712,40 +716,84 @@ def call_image_gen(ref_image_bytes, prompt, size=None, retries=RETRY_TIMES):
 
 
 # ============================================================
-# Gemini 调用（封装在函数里 lazy import google-genai）
+# Gemini 调用 · 通过 OpenAI 兼容协议（生产无法直连 Google，走中转）
 # ============================================================
-_gem_client = None
-
-
-def _get_gemini_client():
-    global _gem_client
-    if _gem_client is None:
-        if not GEMINI_API_KEY:
-            raise RuntimeError("GEMINI_API_KEY 未配置")
-        from google import genai
-        _gem_client = genai.Client(api_key=GEMINI_API_KEY)
-    return _gem_client
-
-
 def _gemini_call(image_bytes, prompt, mime="image/png", expect_json=True,
-                 temperature=0.3):
-    """通用 Gemini 调用。返回 (parsed_json or text, elapsed_sec)。"""
-    from google.genai import types
-    client = _get_gemini_client()
-    t0 = time.time()
-    resp = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type=mime),
-            prompt,
+                 temperature=0.3, max_tokens=4000):
+    """通用 Gemini 调用（OpenAI 兼容协议）。返回 (parsed_json or text, elapsed_sec)。
+
+    - GEMINI_BASE_URL：中转或官方 base url（含 /v1 之前的部分）
+    - GEMINI_API_KEY：sk-... 形式
+    - GEMINI_MODEL：gemini-3-flash-preview 等
+    图片走 OpenAI chat completions 的 image_url + data:URL base64 编码。
+    """
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY 未配置")
+    if mime == "application/octet-stream":
+        mime = "image/png"
+    b64 = base64.b64encode(image_bytes).decode("ascii")
+    payload = {
+        "model": GEMINI_MODEL,
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url",
+                 "image_url": {"url": "data:%s;base64,%s" % (mime, b64)}},
+            ]},
         ],
-        config=types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-            temperature=temperature,
-        ),
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+    }
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    url = GEMINI_BASE_URL + "/v1/chat/completions"
+    req = urllib.request.Request(
+        url, data=data,
+        headers={
+            "Authorization": "Bearer " + GEMINI_API_KEY,
+            "Content-Type": "application/json",
+        },
+        method="POST",
     )
+    ctx = ssl.create_default_context()
+    t0 = time.time()
+    last_err = None
+    text = None
+    for attempt in range(3):
+        try:
+            with urllib.request.urlopen(req, context=ctx, timeout=GEMINI_TIMEOUT) as resp:
+                raw = resp.read().decode("utf-8")
+            j = json.loads(raw)
+            choices = j.get("choices") or []
+            if not choices:
+                last_err = "上游无 choices: %s" % str(j)[:300]
+            else:
+                msg = choices[0].get("message") or {}
+                content = msg.get("content")
+                # OpenAI 兼容协议下 content 是 string；少数中转返回 list 形式
+                if isinstance(content, list):
+                    text = "".join(
+                        p.get("text", "") for p in content if isinstance(p, dict)
+                    )
+                else:
+                    text = content or ""
+                text = text.strip()
+                break
+        except urllib.error.HTTPError as e:
+            body_text = ""
+            try:
+                body_text = e.read().decode("utf-8", errors="replace")[:400]
+            except Exception:
+                pass
+            last_err = "HTTP %d: %s" % (e.code, body_text)
+        except Exception as e:
+            last_err = "%s: %s" % (type(e).__name__, e)
+        if attempt < 2:
+            time.sleep(1.5 * (attempt + 1))
+
+    if text is None:
+        raise RuntimeError("Gemini 3 次重试均失败：%s" % last_err)
+
     elapsed = round(time.time() - t0, 2)
-    text = (resp.text or "").strip()
     if expect_json:
         parsed = _safe_json_loads(text)
         if parsed is None:
