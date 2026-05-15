@@ -1,3 +1,10 @@
+# v1 server.py 仍引用 openai SDK（生产 18082 之前的版本，已切到 v2 但保留以备回滚）
 openai>=1.50.0
-# Pillow：用于内容审核前的图像缩图（MiniCPM-V 喂图前必须降到 ≤512px，否则上游 SSL 断连）
+
+# v2 server_v2.py 核心依赖：
+# Gemini 识菜名 + 提取 layers + 写 brief
+google-genai>=2.0.0
+# Pillow：内容审核前缩图（MiniCPM-V 喂图必须 ≤512px）+ bbox crop + 分享卡合成
 Pillow>=10.0.0
+# 分享卡的 QR 码（/api/journey/{id}/share-card）
+qrcode>=7.4
