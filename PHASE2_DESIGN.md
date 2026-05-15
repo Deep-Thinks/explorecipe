@@ -53,7 +53,7 @@ Gemini 从"作者"降为"读者"，gpt-image-2 从"插画师"升为"作者 + 插
        ▼          ▼         ▼
 ┌────────────┐ ┌────────┐ ┌───────────────────────┐
 │ MiniCPM-V  │ │ Gemini │ │ gpt-image-2           │
-│ 内容审核    │ │ 3 Flash│ │ (token-recyclebin)    │
+│ 内容审核    │ │ 3 Flash│ │ (OpenAI 兼容反代)     │
 │ is_food    │ │ OCR    │ │ 创作 + 渲染            │
 └────────────┘ └────────┘ └───────────────────────┘
 ```
@@ -204,7 +204,7 @@ Lv N 图（1024×1792 PNG，含中文标签）
 
 1. **不要把 Lv N 整图带入 Lv N+1 生成**。只带 crop。
 2. **Flash 简介只是"取个名"**，不是 recipe 作者。它告诉 gpt-image-2 "你看到的这块叫什么"，避免后者瞎猜。
-3. **gpt-image-2 进的是"生成新图"模式**，不是"编辑旧图"模式。这两种模式对 token-recyclebin 这类反代来说调用方式相同，但 prompt 引导可以选择哪种行为占主导：现在的引导是 "Compose this as a FRESH image, not an edit."
+3. **gpt-image-2 进的是"生成新图"模式**，不是"编辑旧图"模式。这两种模式对 OpenAI 兼容反代来说调用方式相同，但 prompt 引导可以选择哪种行为占主导：现在的引导是 "Compose this as a FRESH image, not an edit."
 4. **9:16（1024×1792）取代 2:3（1024×1536）**：移动端竖屏天然 9:16，整图更"沉浸"；Lv1 也同步使用 9:16。
 
 ### 3.4 内容审核 · 不动
@@ -222,7 +222,7 @@ MiniCPM-V 1.3B `is_food` 二分类不变，沿用 `server.py::call_minicpm_food_
 | L3 | Gemini Flash 自创 recipe 容易抽象 / 重复 / 套话 | 任务超出 Flash 能力上限 | 把 "decide recipe" 移到 gpt-image-2 prompt，Flash 只 OCR / 简介 |
 | L4 | Tools 偶尔被画上小标签 | prompt 不够强硬 | 用 "ABSOLUTELY NO Chinese characters anywhere on or near this tool" |
 | L5 | "美拉德反应""脂肪"等抽象项混进来 | 子配方 prompt 没拦死 | 强制 "DISCRETE PHYSICAL OBJECTS"，列黑名单 |
-| L6 | gpt-image-2 偶发 "无 data" 间歇失败 | token-recyclebin 上游不稳 | 3 次指数退避重试（沿用现 `call_dmfox_explosion`）|
+| L6 | gpt-image-2 偶发 "无 data" 间歇失败 | 第三方反代上游不稳 | 3 次指数退避重试（沿用现 `call_dmfox_explosion`）|
 
 **核心哲学**：信任 gpt-image-2 ≠ 撒手不管。约束写在 prompt 里、写在数据流里；不是把它的创作权剥离给文本模型。Phase 1 已经证明给它合适的 prompt + 合适的 input，它能稳定渲染含中文 30 字描述的爆炸图。
 
@@ -342,7 +342,7 @@ logs/journeys/
 {
   "ok": true,
   "journey_id": "7Q4HK3M",
-  "share_url": "https://explorecipe.xmu-cuisine.club/j/7Q4HK3M",
+  "share_url": "https://explorecipe.example.com/j/7Q4HK3M",
   "current_level": 1,
   "path": [...],            // 同 meta.path 结构
   "layers_meta": {...}      // Lv1 的 layers JSON
@@ -712,7 +712,7 @@ Phase 2 还没在 Phase 1 验证过的关键假设：
 | gpt-image-2 自己想 recipe 质量优于 Flash 列大纲 | recipe 抽象 / 跑题 / 倒退 | 同一菜原图，两种 prompt 模式各跑 3 次，对比抽象项率、视觉一致性、用户主观偏好 |
 | crop+brief 切断字形漂移 | Lv5 是否仍变形？crop 边界处理是否会丢失字符？ | 跑完整 5 层，统计每层 OCR 置信度与字符正确率 |
 | 标签左右排版 gpt-image-2 能否稳定遵守 | 模型可能仍习惯把标签放下方 | 5 张菜各跑 1 次，看默认行为 vs prompt 强制后的 compliance |
-| 9:16 (1024×1792) 是否被 token-recyclebin 支持 | 上游可能拒绝非标准尺寸 | 一次最小调用确认 |
+| 9:16 (1024×1792) 是否被反代支持 | 上游可能拒绝非标准尺寸 | 一次最小调用确认 |
 
 **PR-0 必须在写 PR-1 后端骨架前完成**。任何上面假设崩塌 → 回到这份文档调整 §3，而不是带着错误假设继续写后端。
 

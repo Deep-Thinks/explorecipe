@@ -10,9 +10,9 @@
 
 | 角色 | 模型 | base_url | 调用函数 | env key |
 |---|---|---|---|---|
-| 内容审核 | `MINICPM_23u6wt`（MiniCPM-V，多模态） | `https://llm-center.ali.modelbest.cn/llm` | `call_minicpm_food_check` | `MINICPM_API_KEY` |
+| 内容审核 | `MINICPM_23u6wt`（MiniCPM-V，多模态） | `MINICPM_BASE_URL`（任意 OpenAI 兼容反代） | `call_minicpm_food_check` | `MINICPM_API_KEY` |
 | 文本理解 | `gemini-3-flash-preview` | google-genai SDK | `call_gemini_identify_dish` / `call_gemini_extract_layers` / `call_gemini_brief` | `GEMINI_API_KEY` |
-| 图像生成 | `gpt-image-2`（image-edit 接口） | `https://image.token-recyclebin.com/v1/images/edits` | `call_image_gen` | `IMAGE_API_KEY` |
+| 图像生成 | `gpt-image-2`（image-edit 接口） | `IMAGE_UPSTREAM_URL`（任意 OpenAI 兼容反代） | `call_image_gen` | `IMAGE_API_KEY` |
 
 > 注：所有 Gemini 调用都关闭了 thinking（`thinking_budget=0`），求快不求深。
 > 注：gpt-image-2 走 image-edit 接口，但 Lv N+1 的 prompt 里强制声明「FRESH composition, NOT an edit of the input」——是 §3.5 苦涩经验之一。

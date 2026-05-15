@@ -80,7 +80,7 @@ BIND_HOST = os.environ.get("BIND_HOST_V2", "::")
 # —— gpt-image-2 ——
 IMAGE_API_KEY = os.environ.get("IMAGE_API_KEY", "")
 IMAGE_UPSTREAM_URL = os.environ.get(
-    "IMAGE_UPSTREAM_URL", "https://image.token-recyclebin.com/v1/images/edits"
+    "IMAGE_UPSTREAM_URL", "https://your-openai-compatible-proxy.example/v1/images/edits"
 )
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "gpt-image-2")
 # 默认 9:16；若 PR-0 烟雾测试失败可改为 1024x1536 回退
@@ -96,7 +96,7 @@ GEMINI_TIMEOUT = int(os.environ.get("GEMINI_TIMEOUT", "180"))
 
 # —— MiniCPM 内容审核 ——
 MINICPM_BASE_URL = os.environ.get(
-    "MINICPM_BASE_URL", "https://llm-center.ali.modelbest.cn/llm"
+    "MINICPM_BASE_URL", "https://your-minicpm-endpoint.example/llm"
 ).rstrip("/")
 MINICPM_API_KEY = os.environ.get("MINICPM_API_KEY", "")
 MINICPM_MODEL = os.environ.get("MINICPM_MODEL", "MINICPM_23u6wt")

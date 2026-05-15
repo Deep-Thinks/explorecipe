@@ -1,20 +1,35 @@
 #!/bin/bash
-# 在远端 101.33.32.162 上首次部署 explorecipe。
-# 用法（在本地执行）：
-#   sshpass -p 'a1b2c3d4<>++' ssh root@101.33.32.162 'bash -s' < deploy/setup-remote.sh
-# 注意：这个脚本不会写 .env，需要执行后手动拷贝本地 .env 内容到 /opt/explorecipe/.env。
+# 在远端裸服务器上首次部署 explorecipe。
+#
+# 用法（在本地）：
+#   1) 配置远端的 SSH 免密登录（推荐 ssh-copy-id）
+#   2) export DOMAIN=explorecipe.example.com
+#      export REMOTE=user@your.server.ip
+#      ssh "$REMOTE" 'bash -s' < deploy/setup-remote.sh
+#   3) 把本地 .env 拷过去：
+#      scp .env "$REMOTE":/opt/explorecipe/.env
+#   4) 申请 HTTPS 证书：
+#      ssh "$REMOTE" "certbot --nginx -d $DOMAIN --redirect --agree-tos -m you@example.com -n"
+#   5) 启动：
+#      ssh "$REMOTE" "systemctl start explorecipe && systemctl status explorecipe"
+#
+# 注意：脚本不会写 .env，需要部署后手动拷贝本地 .env 内容到 /opt/explorecipe/.env。
 
 set -euo pipefail
 
-PROJECT=/opt/explorecipe
-REPO=https://github.com/Deep-Thinks/explorecipe.git
-DOMAIN=explorecipe.xmu-cuisine.club
+PROJECT="${PROJECT:-/opt/explorecipe}"
+REPO="${REPO:-https://github.com/Deep-Thinks/explorecipe.git}"
+DOMAIN="${DOMAIN:-explorecipe.example.com}"
 
 echo "==> 检查依赖"
 command -v python3 >/dev/null || { echo "需要 python3"; exit 1; }
-python3 -c "import openai" 2>/dev/null || python3 -m pip install --break-system-packages openai
+command -v nginx >/dev/null || { echo "需要 nginx（请先 apt install nginx）"; exit 1; }
 
-echo "==> 克隆代码"
+echo "==> 安装 Python 依赖"
+python3 -m pip install --break-system-packages -r "$PROJECT/requirements.txt" 2>/dev/null || \
+    python3 -m pip install --break-system-packages openai google-genai Pillow qrcode
+
+echo "==> 克隆代码到 $PROJECT"
 if [ -d "$PROJECT/.git" ]; then
     echo "    项目目录已存在，跳过 clone"
 else
@@ -34,8 +49,10 @@ cp "$PROJECT/deploy/explorecipe.service" /etc/systemd/system/explorecipe.service
 systemctl daemon-reload
 systemctl enable explorecipe
 
-echo "==> 装 nginx vhost (HTTP only, certbot 后续会改成 HTTPS)"
-cp "$PROJECT/deploy/nginx-explorecipe.conf" /etc/nginx/sites-available/$DOMAIN
+echo "==> 装 nginx vhost（HTTP only，certbot 后续会改成 HTTPS）"
+# 把模板里的 DOMAIN 占位替换为实际域名
+sed "s/explorecipe.example.com/$DOMAIN/g" "$PROJECT/deploy/nginx-explorecipe.conf" \
+    > /etc/nginx/sites-available/$DOMAIN
 ln -sf /etc/nginx/sites-available/$DOMAIN /etc/nginx/sites-enabled/$DOMAIN
 nginx -t
 
@@ -45,12 +62,12 @@ systemctl reload nginx
 echo ""
 echo "✅ 自动化完成。剩下三步手动操作："
 echo ""
-echo "  1) 写 .env：在 $PROJECT/.env 填入 IMAGE_API_KEY / IMAGE_UPSTREAM_URL / STEPFUN_API_KEY"
-echo "     可以从本地 cp 过去："
-echo "       sshpass -p 'a1b2c3d4<>++' scp .env root@101.33.32.162:$PROJECT/.env"
+echo "  1) 写 .env：在 $PROJECT/.env 填入 IMAGE_API_KEY / STEPFUN_API_KEY / GEMINI_API_KEY / MINICPM_API_KEY"
+echo "     从本地拷贝："
+echo "       scp .env user@your.server:$PROJECT/.env"
 echo ""
 echo "  2) 申请 HTTPS 证书（DNS A 记录必须先做好）："
-echo "       certbot --nginx -d $DOMAIN --redirect --agree-tos -m dev@xmu-cuisine.club -n"
+echo "       certbot --nginx -d $DOMAIN --redirect --agree-tos -m you@example.com -n"
 echo ""
 echo "  3) 启动服务："
 echo "       systemctl start explorecipe"

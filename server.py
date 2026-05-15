@@ -1,16 +1,16 @@
 """
-explorecipe · 本地 HTTP 服务
+explorecipe · 本地 HTTP 服务（v1 · legacy）
 
 设计目标：
   - 浏览器只跟 localhost 通信，密钥仅存服务端 .env
   - 两个核心后端端点：
-      POST /api/generate-explosion  上传一张食物图，转发到 dm-fox gpt-image-2，
+      POST /api/generate-explosion  上传一张食物图，转发到 OpenAI 兼容反代的 gpt-image-2，
                                     返回生成的爆炸分解图 PNG
       POST /api/explain-region      上传裁切后的成分图块，转发到 StepFun step-3.6
                                     视觉模式，返回 Markdown 科普卡
   - 静态：/  或  /index.html  -> 前端 SPA
 
-参考：lilibear-world/server.py，但去掉了任务系统/限流/SQLite/缩略图（MVP 用不上）
+注：此为 v1 实现，当前生产已切换到 server_v2.py。保留此文件供回滚参考。
 """
 
 import base64
@@ -47,7 +47,7 @@ SHARE_ID_LEN = 7  # 31^7 ≈ 2.7e10 容量，碰撞概率足够低
 
 
 # ============================================================
-# .env 加载（与 lilibear 一致：极简 K=V 行解析）
+# .env 加载（极简 K=V 行解析）
 # ============================================================
 def _load_env():
     for fname in (".env.local", ".env"):
@@ -66,7 +66,7 @@ def _load_env():
 _load_env()
 PORT = int(os.environ.get("PORT", "18081"))
 BIND_HOST = os.environ.get("BIND_HOST", "::")
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "https://explorecipe.xmu-cuisine.club").rstrip("/")
+PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "http://localhost:18082").rstrip("/")
 IMAGE_API_KEY = os.environ.get("IMAGE_API_KEY", "")
 STEPFUN_API_KEY = os.environ.get("STEPFUN_API_KEY", "")
 STEPFUN_BASE_URL = os.environ.get("STEPFUN_BASE_URL", "https://api.stepfun.com/v1")
@@ -75,11 +75,11 @@ STEPFUN_MODEL = os.environ.get("STEPFUN_MODEL", "step-3.6")
 UPSTREAM_TIMEOUT = 600                       # 生成图最长等 10 分钟
 MAX_UPLOAD_BYTES = 12 * 1024 * 1024          # 用户上传图上限 12MB
 MAX_REGION_BYTES = 4 * 1024 * 1024           # 点击成分图上限 4MB
-RETRY_TIMES = 3                              # gpt-image-2 间歇性"无输出"，沿用 lilibear 重试策略
+RETRY_TIMES = 3                              # gpt-image-2 间歇性"无输出"，做指数退避重试
 RETRY_BACKOFF_BASE = 2.0
 
 IMAGE_UPSTREAM_URL = os.environ.get("IMAGE_UPSTREAM_URL",
-                                    "https://chatgpt2api2.zeabur.app/v1/images/edits")
+                                    "https://your-openai-compatible-proxy.example/v1/images/edits")
 IMAGE_MODEL = os.environ.get("IMAGE_MODEL", "gpt-image-2")
 # /v1/images/edits 必须带 size；固定竖版爆炸图比例
 IMAGE_SIZE = os.environ.get("IMAGE_SIZE", "1024x1536")
@@ -88,7 +88,7 @@ IMAGE_SIZE = os.environ.get("IMAGE_SIZE", "1024x1536")
 # 在调用昂贵的 gpt-image-2 之前先做 is_food 二分类，拦截人物/文档/建筑等非食物图。
 # 关闭：MODERATION_ENABLED=false（紧急逃生口，重启服务生效）
 MINICPM_BASE_URL = os.environ.get("MINICPM_BASE_URL",
-                                  "https://llm-center.ali.modelbest.cn/llm").rstrip("/")
+                                  "https://your-minicpm-endpoint.example/llm").rstrip("/")
 MINICPM_API_KEY = os.environ.get("MINICPM_API_KEY", "")
 MINICPM_MODEL = os.environ.get("MINICPM_MODEL", "MINICPM_23u6wt")  # MiniCPM-V-4.6-1.3B-Instruct
 MODERATION_ENABLED = os.environ.get("MODERATION_ENABLED", "true").strip().lower() != "false"
@@ -224,7 +224,7 @@ def _write_event(payload):
 
 
 def _detect_image_mime(data):
-    """按字节签名判断图片 MIME。dm-fox 要求 multipart 里 Content-Type 真实，否则下游 vision 拒收。"""
+    """按字节签名判断图片 MIME。上游反代要求 multipart 里 Content-Type 真实，否则下游 vision 拒收。"""
     if not data or len(data) < 12:
         return "application/octet-stream"
     if data[:8] == b"\x89PNG\r\n\x1a\n":
@@ -549,10 +549,10 @@ def _parse_moderation_json(content):
 
 
 # ============================================================
-# 上游调用：dm-fox gpt-image-2（生成爆炸分解图）
+# 上游调用：gpt-image-2 / OpenAI 兼容反代（生成爆炸分解图）
 # ============================================================
 def call_dmfox_explosion(ref_image_bytes, ignore_people=False):
-    """同步调用 dm-fox。返回 PNG 字节流。失败抛 RuntimeError。
+    """同步调用上游 gpt-image-2 反代。返回 PNG 字节流。失败抛 RuntimeError。
 
     说明：按用户要求，不传 size 参数，让模型自选合适比例。
     """
@@ -600,7 +600,7 @@ def call_dmfox_explosion(ref_image_bytes, ignore_people=False):
                 continue
             if not j or "data" not in j or not j["data"]:
                 last_err = "上游返回无图片数据：%s" % str(j)[:200]
-                # 等一会儿再重试，dm-fox 这种"无输出"经验上是间歇性
+                # 等一会儿再重试，gpt-image-2 这种"无输出"经验上是间歇性
                 if attempt < RETRY_TIMES - 1:
                     time.sleep(RETRY_BACKOFF_BASE * (attempt + 1))
                 continue
@@ -633,7 +633,7 @@ def call_dmfox_explosion(ref_image_bytes, ignore_people=False):
             continue
 
     if img_bytes is None:
-        raise RuntimeError("dm-fox %d 次重试均失败：%s" % (RETRY_TIMES, last_err or "未知"))
+        raise RuntimeError("gpt-image-2 %d 次重试均失败：%s" % (RETRY_TIMES, last_err or "未知"))
 
     elapsed = round(time.time() - total_t0, 2)
 
@@ -977,7 +977,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
         # —— 内容审核（MiniCPM-V 1.3B）——
         # 在调用昂贵的 gpt-image-2 之前先做食物分类拦截。
-        # 失败策略：fail-closed（审核服务挂了直接 503，不冒险烧 token-recyclebin）。
+        # 失败策略：fail-closed（审核服务挂了直接 503，不冒险烧上游 gpt-image-2 配额）。
         ignore_people = False
         if MODERATION_ENABLED:
             client_ip = self.client_address[0] if self.client_address else "-"

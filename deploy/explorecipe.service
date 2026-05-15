@@ -13,7 +13,8 @@ Environment=PORT=18082
 # v2 实际使用（nginx 已反代 18082，所以 PORT_V2=18082）
 Environment=BIND_HOST_V2=127.0.0.1
 Environment=PORT_V2=18082
-Environment=PUBLIC_BASE_URL_V2=https://explorecipe.xmu-cuisine.club
+# 部署时改成你的真实公开域名，OG meta 与永久分享卡的二维码会用到
+Environment=PUBLIC_BASE_URL_V2=https://explorecipe.example.com
 ExecStart=/usr/bin/python3 -u /opt/explorecipe/server_v2.py
 Restart=always
 RestartSec=3

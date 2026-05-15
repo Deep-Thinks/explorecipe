@@ -2,7 +2,7 @@
 
 > 这份文档是 ExploreCipe UI 的 single source of truth。所有 token、组件 vocabulary、和它们的设计依据都在这里。改 UI 之前先读这页，改完之后同步这页。
 >
-> 视觉 DNA 继承自姊妹篇 [lilibear-world](../lilibear_world/index.html)，两者属于厦门大学美食协会同一系列。
+> 视觉 DNA 继承自姊妹项目 lilibear-world（同一系列，独立开源）。
 
 ---
 
@@ -52,7 +52,7 @@
 
 **`-apple-system` / `system-ui` / `BlinkMacSystemFont` 永久禁用作为主字体**。它们是 AI slop 黑名单 #11 的信号——"我放弃排版"。
 
-字体由 Google Fonts 加载。国内访问没问题（lilibear-world 生产已验证）。
+字体由 Google Fonts 加载。国内访问已在姊妹项目生产环境验证可用。
 
 ### 1.3 字号 / 间距 / 圆角 / 边框
 
@@ -128,7 +128,7 @@ hover：`translate(-1px, -1px) + shadow-stamp-lg`。active：`translate(2px, 2px
 
 ### 2.3 `<MascotBob>`
 
-吉祥物图像（统一引用 `lilibear` 资源，见决策 4 of Pass 4）。三种状态：
+吉祥物图像（统一引用 `static/lilibear_logo.png`，见决策 4 of Pass 4）。三种状态：
 
 - 静态 logo：`filter: drop-shadow(2px 2px 0 var(--ink))`
 - `wave`：确认抽屉里挥手
@@ -138,7 +138,7 @@ hover：`translate(-1px, -1px) + shadow-stamp-lg`。active：`translate(2px, 2px
 
 `<DrawerBottom>`：移动端从底部上拉的 sheet。`border-top: var(--bw) solid var(--ink) + border-radius: var(--r-lg) var(--r-lg) 0 0 + 0 -8px 0 var(--ink) 投影`。带顶部把手 + ESC 关闭 + focus trap。
 
-`<DrawerRight>`：桌面端从右侧滑入（复用 lilibear `#panel`）。
+`<DrawerRight>`：桌面端从右侧滑入。
 
 ### 2.5 `<CanvasFrame>`
 
@@ -271,8 +271,7 @@ desktop-wide    : >= 1600         mindmap 320px / 画布 max-width 1200px
 
 ## 9 · 引用 & 来源
 
-- 视觉 DNA：`/niuniu869_dev/lilibear_world/index.html`（已生产）
-- 评审记录：本仓库 `.gstack/projects/Deep-Thinks-explorecipe/branch-reviews.jsonl`
-- 评审 wireframe：`~/.gstack/projects/Deep-Thinks-explorecipe/designs/explore-confirm-20260515/wireframe.html`
+- 视觉 DNA：姊妹项目 lilibear-world（同一系列、独立开源）
+- 评审记录：本仓库历史 commit + 设计文档
 - 决策日期：2026-05-15
-- 评审人：plan-design-review (gstack)
+- 评审工具：plan-design-review

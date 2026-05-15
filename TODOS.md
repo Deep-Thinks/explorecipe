@@ -38,12 +38,12 @@
 3. 新接口 `GET /api/trending?limit=20`（首页加载时拉取）
 4. 隐私兜底：trending 响应只暴露 `journey_id / dish_name_zh / Lv1 thumbnail_url / published_at`，**不暴露 IP / device / 上传者**
 
-**Why**：决策 1 升级版（用户补充）——首页双卷轴：本机 localStorage「我的拆解夹」 + 全站 trending 「大家最近拆过」。lilibear-world 是默认公开（探索世界本身就是社交叙事），explorecipe 是私人食物内容（"我的午饭" 不该被默认公开），所以走 opt-in 模型。
+**Why**：决策 1 升级版（用户补充）——首页双卷轴：本机 localStorage「我的拆解夹」 + 全站 trending 「大家最近拆过」。姊妹项目 lilibear-world 是默认公开（探索世界本身就是社交叙事），explorecipe 是私人食物内容（"我的午饭" 不该被默认公开），所以走 opt-in 模型。
 
 **Pros**：
 - 首访用户在首页就能看到产品产物，降低首次焦虑（Pass 3 时间维度 5 秒视觉感）
 - 用户 opt-in 才进 trending，隐私优先
-- 完成态新增「发到 trending」按钮 = 增加完成态情绪出口（lilibear 完成态 3 按钮模式延续）
+- 完成态新增「发到 trending」按钮 = 增加完成态情绪出口（沿用姊妹项目的完成态 3 按钮模式）
 
 **Cons**：
 - 数据库迁移；现有 journeys 默认 is_public=false 是 safe
