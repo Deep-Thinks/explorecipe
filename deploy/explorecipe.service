@@ -1,5 +1,5 @@
 [Unit]
-Description=ExploreCipe local HTTP server
+Description=ExploreCipe v2 HTTP server (无限分解 · 三阶段 loading · trending)
 After=network-online.target
 Wants=network-online.target
 
@@ -7,9 +7,14 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/opt/explorecipe
 EnvironmentFile=/opt/explorecipe/.env
+# v1 兼容（保留以备紧急回滚）
 Environment=BIND_HOST=127.0.0.1
 Environment=PORT=18082
-ExecStart=/usr/bin/python3 -u /opt/explorecipe/server.py
+# v2 实际使用（nginx 已反代 18082，所以 PORT_V2=18082）
+Environment=BIND_HOST_V2=127.0.0.1
+Environment=PORT_V2=18082
+Environment=PUBLIC_BASE_URL_V2=https://explorecipe.xmu-cuisine.club
+ExecStart=/usr/bin/python3 -u /opt/explorecipe/server_v2.py
 Restart=always
 RestartSec=3
 User=root

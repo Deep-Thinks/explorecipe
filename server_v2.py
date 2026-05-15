@@ -99,6 +99,9 @@ MINICPM_MODEL = os.environ.get("MINICPM_MODEL", "MINICPM_23u6wt")
 MODERATION_ENABLED = os.environ.get("MODERATION_ENABLED", "true").lower() != "false"
 MODERATION_MAX_SIDE = 512
 MODERATION_TIMEOUT = 30
+# 低于此置信度的 "is_food=false" 判决放行（防止模型把边缘食物图误杀）
+# 默认 0.7：只有模型相当自信「这不是食物」时才拒
+MODERATION_FAIL_OPEN_BELOW = float(os.environ.get("MODERATION_FAIL_OPEN_BELOW", "0.7"))
 
 # —— 通用 ——
 UPSTREAM_TIMEOUT = 600
@@ -189,6 +192,130 @@ def _build_multipart(boundary, fields):
 
 
 _log_lock = threading.Lock()
+
+# ============================================================
+# Job store · 异步任务进度（用于 LOADING 三阶段信号）
+# ============================================================
+JOBS = {}           # job_id -> { kind, stage, started_at, stage_started_at, done, ok, result, error }
+JOBS_LOCK = threading.Lock()
+JOB_TTL_SEC = 600   # 完成 10 分钟后清理
+JOB_ID_LEN = 12
+
+
+def _new_job_id():
+    return secrets.token_hex(JOB_ID_LEN // 2 + 2)[:JOB_ID_LEN]
+
+
+def _job_snapshot(job_id):
+    with JOBS_LOCK:
+        j = JOBS.get(job_id)
+        if not j:
+            return None
+        snap = dict(j)
+    now = time.time()
+    snap["elapsed_sec"] = round(now - snap["started_at"], 2)
+    snap["stage_elapsed_sec"] = round(now - snap["stage_started_at"], 2)
+    return snap
+
+
+def _job_set_stage(job_id, stage):
+    with JOBS_LOCK:
+        j = JOBS.get(job_id)
+        if not j:
+            return
+        j["stage"] = stage
+        j["stage_started_at"] = time.time()
+
+
+def _job_finish(job_id, ok, result=None, error=None):
+    with JOBS_LOCK:
+        j = JOBS.get(job_id)
+        if not j:
+            return
+        j["done"] = True
+        j["ok"] = ok
+        j["finished_at"] = time.time()
+        if ok:
+            j["result"] = result
+            j["stage"] = "done"
+        else:
+            j["error"] = error
+            j["stage"] = "error"
+
+
+def _gc_jobs():
+    """超过 TTL 的已完成 job 清掉。"""
+    now = time.time()
+    with JOBS_LOCK:
+        for jid in list(JOBS.keys()):
+            j = JOBS[jid]
+            if j.get("done") and now - j.get("finished_at", now) > JOB_TTL_SEC:
+                del JOBS[jid]
+
+
+def _spawn_job(kind, fn, *args):
+    """启动后台线程。返回 job_id。"""
+    _gc_jobs()
+    jid = _new_job_id()
+    with JOBS_LOCK:
+        JOBS[jid] = {
+            "job_id": jid,
+            "kind": kind,
+            "stage": "queued",
+            "started_at": time.time(),
+            "stage_started_at": time.time(),
+            "done": False,
+            "ok": None,
+            "result": None,
+            "error": None,
+        }
+
+    def _runner():
+        def progress(stage):
+            _job_set_stage(jid, stage)
+        try:
+            result = fn(*args, on_progress=progress)
+            # start_journey 返回 (jid, resp_dict)；drill 直接 dict —— 统一拿后者
+            if isinstance(result, tuple) and len(result) == 2:
+                result = result[1]
+            _job_finish(jid, True, result=result)
+        except ValueError as e:
+            # 把业务级拒绝原因也打到 stderr，便于诊断（避免静默吞）
+            sys.stderr.write("[job %s] ValueError: %s\n" % (jid, e))
+            _job_finish(jid, False, error=str(e))
+        except Exception as e:
+            traceback.print_exc()
+            _job_finish(jid, False, error="%s: %s" % (type(e).__name__, e))
+
+    t = threading.Thread(target=_runner, name="job-" + jid, daemon=True)
+    t.start()
+    return jid
+
+
+REJECTED_DIR = os.path.join(LOG_ROOT, "rejected")
+
+
+def _save_rejected(img_bytes, info, reason="unknown"):
+    """把审核拒绝（或低置信放行）的原图和 MiniCPM 响应落盘以便事后审查。"""
+    try:
+        os.makedirs(REJECTED_DIR, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+        mime = _detect_image_mime(img_bytes)
+        ext = "jpg" if mime == "image/jpeg" else (
+              "png" if mime == "image/png" else (
+              "webp" if mime == "image/webp" else "bin"))
+        png_path = os.path.join(REJECTED_DIR, "%s_%s.%s" % (ts, reason, ext))
+        json_path = os.path.join(REJECTED_DIR, "%s_%s.json" % (ts, reason))
+        with open(png_path, "wb") as f:
+            f.write(img_bytes)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump({"ts": ts, "reason": reason, "moderation": info,
+                       "size_bytes": len(img_bytes), "mime": mime},
+                      f, ensure_ascii=False, indent=2)
+        print("[rejected] saved %s (reason=%s, mod=%s)" % (
+            png_path, reason, info))
+    except Exception as e:
+        print("[rejected] save failed: %s" % e)
 
 
 def _write_event(payload):
@@ -422,6 +549,40 @@ def _parse_minicpm(content):
         "confidence": 0.0,
         "reason": "",
     }
+
+
+# 注：MiniCPM 的 is_food 字段经常自相矛盾——它会在 category="food"、reason 明确
+# 说"这是汉堡"的同时把 is_food 设为 false（只要图里有人脸或它觉得是"场景"）。
+# 因此不能只看 is_food，必须联合 category + reason 文本兜底。
+_FOOD_CATEGORY_KWS = ("food", "dish", "drink", "beverage", "fruit",
+                     "vegetable", "meat", "snack", "dessert", "cuisine")
+_FOOD_REASON_KWS = (
+    "食物", "食品", "菜", "饭", "面", "饮", "果", "蔬", "肉", "鱼", "蛋",
+    "汉堡", "披萨", "寿司", "饺", "包", "粥", "汤", "甜点", "糕", "饼", "酒",
+    "茶", "咖啡", "豆", "米", "粉", "卷", "排", "烤", "炸", "烧", "炒", "蒸",
+)
+
+
+def _decide_is_food(info):
+    """从 MiniCPM 响应推断是否为食物。返回 (decision, reason_str)。
+
+    决策顺序：
+      1. is_food=true → 直接通过
+      2. category 含食物词 → 通过（修 MiniCPM 自相矛盾：category=food 但 is_food=false）
+      3. reason 文案里出现典型食物词 → 通过
+      4. 否则才真的拒
+    """
+    if bool(info.get("is_food")):
+        return True, "is_food=true"
+    category = str(info.get("category") or "").lower()
+    for kw in _FOOD_CATEGORY_KWS:
+        if kw in category:
+            return True, "category='%s' 含食物字样" % category
+    reason_text = str(info.get("reason") or "")
+    for kw in _FOOD_REASON_KWS:
+        if kw in reason_text:
+            return True, "reason 含食物词「%s」" % kw
+    return False, "category=%s, reason=%s" % (category, reason_text[:80])
 
 
 def call_minicpm_food_check(img_bytes):
@@ -1012,19 +1173,39 @@ def _pick_layer_by_bbox(layers_list, bbox):
 # ============================================================
 # 业务编排 · start
 # ============================================================
-def start_journey(image_bytes):
-    """完整 Lv1 流程。返回 (jid, response_dict)。同步阻塞 ~80s。"""
-    t_total = time.time()
+def start_journey(image_bytes, on_progress=None):
+    """完整 Lv1 流程。返回 (jid, response_dict)。同步阻塞 ~80s。
 
-    # —— 1. MiniCPM 审核（fail-closed） ——
+    on_progress(stage_name)：可选回调，stage_name ∈ {'moderation','identify','image_gen','extract'}
+    """
+    t_total = time.time()
+    cb = on_progress or (lambda *_a, **_k: None)
+
+    # —— 1. MiniCPM 审核（联合多字段判断，修 is_food 字段不稳的坑） ——
+    cb("moderation")
     moderation_info = None
     if MODERATION_ENABLED:
         info = call_minicpm_food_check(image_bytes)
         moderation_info = info
-        if not info.get("is_food"):
-            raise ValueError("REJECT_NOT_FOOD: 上传的图片似乎不是食物")
+        decision, why = _decide_is_food(info)
+        moderation_info["decided_is_food"] = decision
+        moderation_info["decision_reason"] = why
+        if not decision:
+            conf = float(info.get("confidence") or 0.0)
+            if conf >= MODERATION_FAIL_OPEN_BELOW:
+                _save_rejected(image_bytes, info, reason="not_food_high_conf")
+                raise ValueError(
+                    "REJECT_NOT_FOOD: 上传的图片似乎不是食物（置信度 %.2f，类型：%s）"
+                    % (conf, info.get("category") or "?")
+                )
+            else:
+                print("[moderation] low-conf not_food, fail-open: %s" % info)
+                _save_rejected(image_bytes, info, reason="not_food_low_conf_passed")
+        else:
+            print("[moderation] PASS · %s · raw=%s" % (why, info))
 
     # —— 2. Gemini 识菜名 ——
+    cb("identify")
     dish = call_gemini_identify_dish(image_bytes)
 
     # —— 3. 创建 journey 目录 ——
@@ -1032,12 +1213,14 @@ def start_journey(image_bytes):
     os.makedirs(_journey_dir(jid), exist_ok=True)
 
     # —— 4. gpt-image-2 生成 Lv1 ——
+    cb("image_gen")
     prompt = LV1_PROMPT_TEMPLATE.format(dish_name=dish["dish_name_zh"])
     lv1_bytes, gen_elapsed = call_image_gen(image_bytes, prompt)
     with open(_layer_png_path(jid, 1), "wb") as f:
         f.write(lv1_bytes)
 
     # —— 5. Gemini 提取 Lv1 layers ——
+    cb("extract")
     try:
         layers, ext_elapsed = call_gemini_extract_layers(lv1_bytes)
     except Exception as e:
@@ -1091,9 +1274,14 @@ def start_journey(image_bytes):
 # ============================================================
 # 业务编排 · drill
 # ============================================================
-def drill_journey(jid, from_level, bbox):
-    """钻入下一层。返回 response_dict。同步阻塞 ~80s。"""
+def drill_journey(jid, from_level, bbox, on_progress=None):
+    """钻入下一层。返回 response_dict。同步阻塞 ~80s。
+
+    on_progress(stage)：drill 没有审核阶段，stage ∈ {'identify','image_gen','extract'}
+    （identify 这里实际是 'crop+brief' —— 用相同 stage 名以复用前端 UI）
+    """
     t_total = time.time()
+    cb = on_progress or (lambda *_a, **_k: None)
     meta = read_meta(jid)
     if not meta:
         raise ValueError("NOT_FOUND: journey 不存在")
@@ -1106,6 +1294,7 @@ def drill_journey(jid, from_level, bbox):
         raise ValueError("DEPTH_LIMIT: 已达最深探索层（%d）" % DRILL_HARD_LIMIT)
 
     # —— 1. 从 layer_{from_level}.png 裁剪 bbox ——
+    cb("identify")
     src_png = _layer_png_path(jid, from_level)
     with open(src_png, "rb") as f:
         src_bytes = f.read()
@@ -1137,12 +1326,14 @@ def drill_journey(jid, from_level, bbox):
         f.write(brief)
 
     # —— 4. gpt-image-2 fresh-generate Lv N+1 ——
+    cb("image_gen")
     prompt = LV_NEXT_PROMPT_TEMPLATE.format(brief=brief)
     lvn_bytes, gen_elapsed = call_image_gen(crop_bytes, prompt)
     with open(_layer_png_path(jid, next_level), "wb") as f:
         f.write(lvn_bytes)
 
     # —— 5. Gemini 提取 layers ——
+    cb("extract")
     try:
         layers, ext_elapsed = call_gemini_extract_layers(lvn_bytes)
     except Exception as e:
@@ -1204,12 +1395,76 @@ def drill_journey(jid, from_level, bbox):
 
 
 # ============================================================
+# 全站 trending（opt-in publish）
+# ============================================================
+def _published_path(jid):
+    return os.path.join(_journey_dir(jid), "published.json")
+
+
+def publish_journey(jid):
+    """把 journey 标记为公开（写 published.json）。返回 trending entry dict。"""
+    meta = read_meta(jid)
+    if not meta:
+        raise ValueError("NOT_FOUND: journey 不存在")
+    path_nodes = meta.get("path") or []
+    if not path_nodes:
+        raise ValueError("EMPTY_JOURNEY: 还没有任何层")
+
+    lv1 = path_nodes[0]
+    last = path_nodes[-1]
+    entry = {
+        "journey_id": jid,
+        "dish_name_zh": meta.get("dish_name_zh") or "未命名探索",
+        "level_count": len(path_nodes),
+        "deepest_title_zh": last.get("title_zh") or "",
+        "lv1_image_url": lv1.get("image_url"),
+        "published_at": _now_iso(),
+    }
+    with open(_published_path(jid), "w", encoding="utf-8") as f:
+        json.dump(entry, f, ensure_ascii=False, indent=2)
+    _write_event({"type": "publish", "journey_id": jid,
+                  "dish_zh": entry["dish_name_zh"]})
+    return entry
+
+
+def unpublish_journey(jid):
+    p = _published_path(jid)
+    if os.path.exists(p):
+        os.remove(p)
+        _write_event({"type": "unpublish", "journey_id": jid})
+
+
+def is_published(jid):
+    return os.path.exists(_published_path(jid))
+
+
+def read_trending(limit=20):
+    """扫所有 published.json，按 published_at 倒序返回。"""
+    if not os.path.isdir(JOURNEY_ROOT):
+        return []
+    entries = []
+    for name in os.listdir(JOURNEY_ROOT):
+        p = os.path.join(JOURNEY_ROOT, name, "published.json")
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, "r", encoding="utf-8") as f:
+                entries.append(json.load(f))
+        except Exception:
+            continue
+    entries.sort(key=lambda e: e.get("published_at") or "", reverse=True)
+    return entries[: max(0, int(limit))]
+
+
+# ============================================================
 # HTTP Handler
 # ============================================================
 JOURNEY_PATH_RE = re.compile(r"^/journey/([^/]+)/layer/(\d+)$")
 API_LAYER_META_RE = re.compile(r"^/api/journey/([^/]+)/layer/(\d+)/meta$")
 API_JOURNEY_RE = re.compile(r"^/api/journey/([^/]+)$")
 API_SHARE_CARD_RE = re.compile(r"^/api/journey/([^/]+)/share-card$")
+API_JOB_RE = re.compile(r"^/api/job/([0-9a-f]+)$")
+API_PUBLISH_RE = re.compile(r"^/api/journey/([^/]+)/publish$")
 J_PATH_RE = re.compile(r"^/j/([^/]+)$")
 
 
@@ -1293,6 +1548,48 @@ class Handler(http.server.BaseHTTPRequestHandler):
             })
             return
 
+        # 阶段进度查询
+        m = API_JOB_RE.match(path)
+        if m:
+            job_id = m.group(1)
+            snap = _job_snapshot(job_id)
+            if not snap:
+                _send_json(self, 404, {"ok": False, "error": "job not found"})
+                return
+            # 不暴露线程对象等内部字段，挑要的回
+            out = {
+                "ok": True,
+                "job_id": snap["job_id"],
+                "kind": snap["kind"],
+                "stage": snap["stage"],
+                "elapsed_sec": snap["elapsed_sec"],
+                "stage_elapsed_sec": snap["stage_elapsed_sec"],
+                "done": snap["done"],
+            }
+            if snap["done"]:
+                out["success"] = bool(snap.get("ok"))
+                if snap.get("ok"):
+                    out["result"] = snap.get("result")
+                else:
+                    out["error"] = snap.get("error")
+            _send_json(self, 200, out)
+            return
+
+        # trending 列表
+        if path == "/api/trending":
+            qs = self.path.split("?", 1)[1] if "?" in self.path else ""
+            limit = 20
+            for kv in qs.split("&"):
+                if kv.startswith("limit="):
+                    try:
+                        limit = int(kv.split("=", 1)[1])
+                    except Exception:
+                        pass
+            entries = read_trending(limit=limit)
+            _send_json(self, 200, {"ok": True, "items": entries,
+                                    "count": len(entries)})
+            return
+
         m = JOURNEY_PATH_RE.match(path)
         if m:
             jid, level = m.group(1), int(m.group(2))
@@ -1354,7 +1651,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 lm = read_layer_meta(jid, node["level"])
                 if lm:
                     layers_all[str(node["level"])] = lm.get("layers") or []
-            _send_json(self, 200, {"ok": True, "meta": meta, "layers": layers_all})
+            _send_json(self, 200, {"ok": True, "meta": meta,
+                                    "layers": layers_all,
+                                    "is_published": is_published(jid)})
             return
 
         # 静态文件兜底（仅根目录下白名单）
@@ -1410,8 +1709,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             mime = _detect_image_mime(body)
             if mime == "application/octet-stream":
                 raise ValueError("BAD_REQUEST: 仅支持 png/jpeg/webp/gif")
-            jid, resp = start_journey(body)
-            _send_json(self, 200, resp)
+            job_id = _spawn_job("start", start_journey, body)
+            _send_json(self, 202, {"ok": True, "job_id": job_id})
             return
 
         if path == "/api/drill":
@@ -1437,8 +1736,32 @@ class Handler(http.server.BaseHTTPRequestHandler):
             x0, y0, x1, y1 = bbox
             if not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
                 raise ValueError("BAD_REQUEST: bbox 必须为 0-1 且 x0<x1,y0<y1")
-            resp = drill_journey(jid, from_level, bbox)
-            _send_json(self, 200, resp)
+            job_id = _spawn_job("drill", drill_journey, jid, from_level, bbox)
+            _send_json(self, 202, {"ok": True, "job_id": job_id})
+            return
+
+        m = API_PUBLISH_RE.match(path)
+        if m:
+            jid = m.group(1)
+            if not _is_valid_id(jid):
+                raise ValueError("BAD_REQUEST: invalid id")
+            # 读 body（可空）：可携带 {action: "unpublish"} 取消公开
+            length = int(self.headers.get("Content-Length") or 0)
+            action = "publish"
+            if length > 0:
+                try:
+                    raw = self.rfile.read(min(length, 4096))
+                    body_j = json.loads(raw.decode("utf-8")) if raw else {}
+                    if isinstance(body_j, dict):
+                        action = str(body_j.get("action") or "publish")
+                except Exception:
+                    pass
+            if action == "unpublish":
+                unpublish_journey(jid)
+                _send_json(self, 200, {"ok": True, "published": False})
+                return
+            entry = publish_journey(jid)
+            _send_json(self, 200, {"ok": True, "published": True, "entry": entry})
             return
 
         _send_json(self, 404, {"ok": False, "error": "not found"})

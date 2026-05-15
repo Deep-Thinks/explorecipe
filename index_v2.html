@@ -3,711 +3,1851 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-<meta name="theme-color" content="#0d0d0f" />
-<title>ExploreCipe · Phase 2</title>
+<meta name="theme-color" content="#fbf3e4" />
+<title>ExploreCipe · 把食物拆给你看</title>
+<link rel="icon" href="/static/lilibear_logo.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=ZCOOL+KuaiLe&family=Ma+Shan+Zheng&family=Noto+Sans+SC:wght@400;500;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+
 <style>
-  :root {
-    --bg: #0d0d0f;
-    --bg-2: #1a1a1f;
-    --fg: #f5f5f7;
-    --fg-mute: #9a9aa3;
-    --accent: #ff6b3d;
-    --accent-soft: rgba(255, 107, 61, 0.18);
-    --line: rgba(255, 255, 255, 0.08);
-    --danger: #e74c3c;
-  }
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
-                 "Microsoft YaHei", sans-serif;
-    background: var(--bg);
-    color: var(--fg);
-    overscroll-behavior-y: none;
-    -webkit-tap-highlight-color: transparent;
-  }
-  button {
-    font-family: inherit;
-    border: none;
-    cursor: pointer;
-    background: none;
-    color: inherit;
-  }
-  #app { min-height: 100%; display: flex; flex-direction: column; }
+/* ============================================================
+   DESIGN TOKENS · v1（DESIGN.md § 1，唯一来源）
+   ============================================================ */
+:root {
+  --paper:    #fbf3e4;
+  --paper-2:  #f3e7cf;
+  --paper-3:  #ecdcb8;
+  --ink:      #4a342a;
+  --ink-soft: #6e4d3d;
+  --accent:   #d8593a;
+  --accent-2: #b8451f;
+  --leaf:     #6f9b5a;
+  --tool:     #6a8aa3;
+  --sky:      #d9ebe8;
+  --shadow:   rgba(80, 50, 30, 0.18);
 
-  /* ============ 上传视图 ============ */
-  .upload {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 40px 24px;
-    text-align: center;
-    gap: 24px;
-  }
-  .upload h1 {
-    margin: 0;
-    font-size: 32px;
-    font-weight: 800;
-    letter-spacing: -0.02em;
-  }
-  .upload h1 .accent { color: var(--accent); }
-  .upload p {
-    margin: 0;
-    color: var(--fg-mute);
-    font-size: 15px;
-    max-width: 320px;
-    line-height: 1.5;
-  }
-  .upload-btn {
-    margin-top: 8px;
-    padding: 18px 36px;
-    background: var(--accent);
-    color: #fff;
-    border-radius: 999px;
-    font-size: 17px;
-    font-weight: 700;
-    box-shadow: 0 8px 24px var(--accent-soft);
-  }
-  .upload-btn:active { transform: scale(0.97); }
-  .upload-hint {
-    font-size: 13px;
-    color: var(--fg-mute);
-  }
-  .err-banner {
-    background: rgba(231, 76, 60, 0.18);
-    color: #ffb4ab;
-    padding: 12px 16px;
-    border-radius: 12px;
-    font-size: 14px;
-    max-width: 380px;
-    line-height: 1.45;
-  }
+  --canvas-bg:    #0d0d0f;
+  --canvas-frame: var(--ink);
 
-  /* ============ Loading 视图 ============ */
-  .loading {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
-    text-align: center;
-    gap: 18px;
-  }
-  .loading-crop {
-    width: 180px; height: 180px;
-    object-fit: cover;
-    border-radius: 16px;
-    border: 2px solid var(--accent);
-    background: var(--bg-2);
-  }
-  .loading-title {
-    font-size: 20px;
-    font-weight: 700;
-  }
-  .loading-eta {
-    color: var(--fg-mute);
-    font-size: 14px;
-  }
-  .loading-brief {
-    color: var(--fg);
-    font-size: 14px;
-    line-height: 1.6;
-    background: var(--bg-2);
-    padding: 14px 18px;
-    border-radius: 14px;
-    max-width: 320px;
-  }
-  .loading-brief .label { color: var(--accent); font-weight: 700; }
-  .spinner {
-    width: 28px; height: 28px;
-    border-radius: 50%;
-    border: 3px solid rgba(255,255,255,0.1);
-    border-top-color: var(--accent);
-    animation: spin 1s linear infinite;
-  }
-  @keyframes spin { to { transform: rotate(360deg); } }
+  --font-display:     'ZCOOL KuaiLe', 'Ma Shan Zheng', sans-serif;
+  --font-calligraphy: 'Ma Shan Zheng', 'ZCOOL KuaiLe', sans-serif;
+  --font-body:        'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono:        'JetBrains Mono', monospace;
 
-  /* ============ 探索视图（面包屑 + 大图） ============ */
-  .explore { display: flex; flex-direction: column; flex: 1; min-height: 0; }
-  .topbar {
-    display: flex;
-    align-items: center;
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--line);
-    gap: 10px;
-    background: var(--bg);
-  }
-  .topbar-title {
-    font-weight: 700;
-    font-size: 16px;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .topbar-btn {
-    color: var(--fg-mute);
-    font-size: 14px;
-    padding: 6px 10px;
-    border-radius: 8px;
-  }
-  .topbar-btn:active { background: var(--bg-2); }
+  --fs-xs: 11px;  --fs-sm: 13px;  --fs-md: 15px;
+  --fs-lg: 19px;  --fs-xl: 28px;  --fs-xxl: 40px;
 
-  .breadcrumb {
-    display: flex;
-    overflow-x: auto;
-    padding: 12px 16px;
-    gap: 8px;
-    border-bottom: 1px solid var(--line);
-    background: var(--bg);
-    scroll-behavior: smooth;
-    -webkit-overflow-scrolling: touch;
-  }
-  .breadcrumb::-webkit-scrollbar { display: none; }
-  .crumb {
-    flex: 0 0 auto;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
-    padding: 4px;
-    border-radius: 10px;
-    min-width: 64px;
-  }
-  .crumb img {
-    width: 48px; height: 48px;
-    object-fit: cover;
-    border-radius: 8px;
-    background: var(--bg-2);
-    border: 2px solid transparent;
-  }
-  .crumb.active img { border-color: var(--accent); }
-  .crumb-name {
-    font-size: 11px;
-    max-width: 64px;
-    color: var(--fg-mute);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    text-align: center;
-  }
-  .crumb.active .crumb-name { color: var(--fg); font-weight: 600; }
-  .crumb-sep {
-    flex: 0 0 auto;
-    align-self: center;
-    color: var(--fg-mute);
-    font-size: 14px;
-    user-select: none;
-  }
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px;  --sp-4: 16px;
+  --sp-5: 24px; --sp-6: 32px; --sp-7: 48px;
 
-  .canvas-wrap {
-    position: relative;
+  --r-sm: 6px;  --r-md: 10px;  --r-lg: 16px;  --r-pill: 28px;
+  --bw: 2.5px;  --bw-thin: 1.5px;
+
+  --shadow-stamp:      3px 3px 0 var(--ink);
+  --shadow-stamp-lg:   4px 4px 0 var(--ink);
+  --shadow-stamp-sm:   2px 2px 0 var(--ink);
+  --shadow-stamp-soft: 4px 4px 0 var(--shadow);
+
+  --t-fast: 0.15s ease;
+  --t-mid:  0.25s ease;
+  --t-slow: 0.4s cubic-bezier(.4,1.4,.5,1);
+}
+
+/* ============================================================
+   全局 reset & base
+   ============================================================ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper);
+  font-size: 16px;
+  line-height: 1.5;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+}
+button {
+  font-family: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+img { display: block; }
+
+/* 焦点环：所有可聚焦元素 focus-visible 时显示 accent 2px outline */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
+}
+
+input[type=file] { display: none; }
+
+#app { min-height: 100%; display: flex; flex-direction: column; }
+
+/* 屏幕级 container 共享 */
+.screen { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+
+/* ============================================================
+   <Btn>
+   ============================================================ */
+.btn {
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  padding: var(--sp-3) var(--sp-5);
+  border-radius: var(--r-pill);
+  border: var(--bw) solid var(--ink);
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: transform var(--t-fast), box-shadow var(--t-fast),
+              background var(--t-fast);
+  background: var(--paper-2);
+  color: var(--ink);
+  display: inline-flex; align-items: center; justify-content: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+}
+.btn:hover { background: var(--paper-3); }
+.btn:active { transform: translate(1px, 1px); }
+.btn.primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: var(--shadow-stamp);
+}
+.btn.primary:hover {
+  background: var(--accent-2);
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-stamp-lg);
+}
+.btn.primary:active {
+  transform: translate(2px, 2px);
+  box-shadow: var(--shadow-stamp-sm);
+}
+.btn.ghost { background: transparent; box-shadow: none; }
+.btn.ghost:hover { background: var(--paper-2); }
+.btn.block { display: flex; width: 100%; }
+.btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.icon-btn {
+  background: transparent;
+  border: var(--bw-thin) solid var(--ink);
+  border-radius: 50%;
+  width: 44px; height: 44px;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  color: var(--ink);
+  cursor: pointer;
+  transition: background var(--t-fast), color var(--t-fast);
+  flex-shrink: 0;
+}
+.icon-btn:hover { background: var(--ink); color: var(--paper); }
+
+/* ============================================================
+   <Pill> / <TagKind>
+   ============================================================ */
+.pill {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  padding: var(--sp-1) var(--sp-3);
+  border-radius: var(--r-pill);
+  background: var(--paper-2);
+  border: var(--bw-thin) dashed var(--ink-soft);
+  color: var(--ink);
+}
+.tag-kind {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-family: var(--font-body);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  border: var(--bw-thin) solid currentColor;
+  white-space: nowrap;
+}
+.tag-kind.food { color: var(--leaf); background: rgba(111, 155, 90, 0.12); }
+.tag-kind.tool { color: var(--tool); background: rgba(106, 138, 163, 0.12); }
+.tag-kind::before {
+  content: ''; display: inline-block;
+  width: 6px; height: 6px; border-radius: 50%;
+  background: currentColor;
+}
+.tag-kind.tool::before { border-radius: 0; }
+
+/* ============================================================
+   屏幕 1 · UPLOAD
+   ============================================================ */
+.s-upload {
+  background: var(--paper);
+}
+.s-upload .header {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5) var(--sp-3);
+  border-bottom: 2px dashed var(--ink-soft);
+}
+.mascot-logo {
+  width: 56px; height: 56px;
+  filter: drop-shadow(2px 2px 0 var(--ink));
+  flex-shrink: 0;
+}
+.mascot-logo img { width: 100%; height: 100%; object-fit: contain; }
+.s-upload .header-text { flex: 1; min-width: 0; }
+.s-upload .header h1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  color: var(--accent-2);
+  font-weight: 400;
+  letter-spacing: 1.5px;
+  text-shadow: 2px 2px 0 var(--paper-2);
+  line-height: 1;
+}
+.s-upload .header .sub {
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  margin-top: var(--sp-1);
+}
+.s-upload .hero-area {
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
+  text-align: center;
+}
+.s-upload .hero-mascot {
+  width: 130px; height: 130px;
+  margin: var(--sp-3) auto var(--sp-3);
+  filter: drop-shadow(4px 4px 0 var(--ink)) drop-shadow(0 2px 4px var(--shadow));
+}
+.s-upload .hero-mascot img { width: 100%; height: 100%; object-fit: contain; }
+.s-upload .hero-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-xxl);
+  color: var(--accent-2);
+  text-shadow: 3px 3px 0 var(--paper-2);
+  letter-spacing: 2px;
+  font-weight: 400;
+  margin-bottom: var(--sp-2);
+}
+.s-upload .tagline {
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-md);
+  color: var(--ink-soft);
+  line-height: 1.6;
+  max-width: 320px;
+  margin: 0 auto var(--sp-4);
+}
+.s-upload .chip-row {
+  display: flex; gap: var(--sp-2);
+  padding: 0 var(--sp-4) var(--sp-4);
+  overflow-x: auto; flex-wrap: nowrap;
+  scrollbar-width: none;
+}
+.s-upload .chip-row::-webkit-scrollbar { display: none; }
+.s-upload .demo-chip {
+  flex: 0 0 auto;
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-sm);
+  background: var(--paper-2);
+  border: var(--bw-thin) solid var(--ink);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--r-pill);
+  color: var(--ink);
+  box-shadow: var(--shadow-stamp-sm);
+}
+.s-upload .upload-cta { padding: 0 var(--sp-4); }
+.s-upload .upload-hint {
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  margin-top: var(--sp-3);
+  padding: 0 var(--sp-4);
+}
+
+.history-block {
+  border-top: 2px dashed var(--ink-soft);
+  padding: var(--sp-4) var(--sp-4) var(--sp-5);
+  background: var(--paper);
+}
+.history-block .title {
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-md);
+  color: var(--ink);
+  margin-bottom: var(--sp-3);
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.history-block .title small {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+}
+.history-row {
+  display: flex; gap: var(--sp-3);
+  overflow-x: auto;
+  scrollbar-width: none;
+  padding-bottom: var(--sp-2);
+}
+.history-row::-webkit-scrollbar { display: none; }
+.history-row .empty {
+  font-family: var(--font-calligraphy);
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  padding: var(--sp-4);
+  background: var(--paper-2);
+  border: var(--bw-thin) dashed var(--ink-soft);
+  border-radius: var(--r-md);
+  text-align: center;
+  flex: 1;
+  min-height: 80px;
+  display: flex; align-items: center; justify-content: center;
+}
+.history-card {
+  flex: 0 0 auto;
+  width: 110px;
+  background: var(--paper-2);
+  border: var(--bw-thin) solid var(--ink);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-stamp-sm);
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform var(--t-fast), box-shadow var(--t-fast);
+  display: flex; flex-direction: column;
+}
+.history-card:hover {
+  transform: translate(-1px, -1px);
+  box-shadow: var(--shadow-stamp);
+}
+.history-card .thumb {
+  width: 100%; aspect-ratio: 1024 / 1536;
+  max-height: 150px;
+  background: var(--canvas-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border-bottom: var(--bw-thin) solid var(--ink);
+}
+.history-card .name {
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  padding: 6px 8px;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-card .sub-meta {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-soft);
+  text-align: center;
+  padding: 0 8px 6px;
+}
+
+/* ============================================================
+   屏幕 2/3 · EXPLORE
+   ============================================================ */
+.s-explore {
+  background: var(--paper);
+  display: flex; flex-direction: column;
+}
+.s-explore .topbar {
+  display: flex; align-items: center; gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: 2px dashed var(--ink-soft);
+  background: var(--paper);
+}
+.s-explore .topbar .mascot-mini {
+  width: 36px; height: 36px;
+  filter: drop-shadow(2px 2px 0 var(--ink));
+  flex-shrink: 0;
+}
+.s-explore .topbar .mascot-mini img { width: 100%; height: 100%; object-fit: contain; }
+.s-explore .topbar .dish-title {
+  flex: 1; min-width: 0;
+}
+.s-explore .topbar .dish-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  color: var(--accent-2);
+  letter-spacing: 1px;
+  line-height: 1.1;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.s-explore .topbar .level-tag {
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
+/* 藤蔓面包屑（移动端） */
+.breadcrumb-vine {
+  padding: var(--sp-3) var(--sp-4);
+  display: flex; align-items: center; gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: var(--bw-thin) dashed var(--ink-soft);
+  background: var(--paper);
+}
+.breadcrumb-vine::-webkit-scrollbar { display: none; }
+.vine-node {
+  flex: 0 0 auto;
+  display: flex; flex-direction: column; align-items: center;
+  width: 60px;
+  padding: 4px;
+  border-radius: var(--r-sm);
+  background: transparent;
+  cursor: pointer;
+  border: none;
+}
+.vine-node .vnode-thumb {
+  width: 44px; height: 44px;
+  border: var(--bw-thin) solid var(--ink);
+  border-radius: var(--r-sm);
+  background: var(--canvas-bg);
+  background-size: cover;
+  background-position: center;
+}
+.vine-node.active .vnode-thumb {
+  border: var(--bw) solid var(--accent);
+  box-shadow: var(--shadow-stamp-sm);
+}
+.vine-node .vnode-name {
+  font-family: var(--font-calligraphy);
+  font-size: 10px;
+  color: var(--ink-soft);
+  margin-top: 4px;
+  max-width: 60px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.vine-node.active .vnode-name { color: var(--ink); font-weight: 700; }
+.vine-sep {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  color: var(--ink-soft);
+  font-size: var(--fs-md);
+  align-self: center;
+  padding: 0 2px;
+  user-select: none;
+}
+
+/* 墨色画框 · 爆炸图容器 */
+.canvas-frame {
+  margin: var(--sp-4) var(--sp-4) var(--sp-3);
+  background: var(--canvas-bg);
+  border: var(--bw) solid var(--canvas-frame);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-stamp-soft);
+  position: relative;
+  overflow: hidden;
+  flex: 1;
+  min-height: 200px;
+  display: flex; justify-content: center; align-items: flex-start;
+}
+.canvas-host {
+  position: relative;
+  max-width: 100%;
+  max-height: 100%;
+  margin: auto;
+}
+.canvas-img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(100vh - 280px);
+  height: auto;
+  width: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.canvas-overlay {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+  pointer-events: none;
+}
+.canvas-overlay.selecting { pointer-events: auto; }
+
+.scrim {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.32);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+.canvas-overlay.selecting .scrim { opacity: 1; }
+
+.redbox {
+  position: absolute;
+  border: 3px solid var(--accent);
+  box-shadow: 0 0 0 2px var(--paper);
+  background: rgba(216, 89, 58, 0.08);
+  pointer-events: none;
+  display: none;
+  border-radius: 4px;
+}
+.redbox.visible { display: block; }
+
+.candidate {
+  position: absolute;
+  border: 2px dashed rgba(216, 89, 58, 0.6);
+  border-radius: 4px;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.candidate.show { opacity: 1; }
+
+.select-hint {
+  position: absolute;
+  bottom: var(--sp-3); left: 50%; transform: translateX(-50%);
+  background: var(--paper);
+  border: var(--bw-thin) solid var(--ink);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-xs);
+  color: var(--ink);
+  box-shadow: var(--shadow-stamp-sm);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* hint 气泡：mindmap/layers leaf 点击时显示 */
+.hint-bubble {
+  position: absolute;
+  bottom: 60px; left: 50%; transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px 16px;
+  border-radius: var(--r-pill);
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-sm);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  white-space: nowrap;
+  z-index: 5;
+}
+.hint-bubble.show { opacity: 1; }
+.hint-bubble::after {
+  content: '';
+  position: absolute;
+  bottom: -6px; left: 50%;
+  transform: translateX(-50%);
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--ink);
+}
+
+/* 列表轻提示（移动端 canvas 下方） */
+.layer-list-mini {
+  margin: 0 var(--sp-4) 0;
+  background: var(--paper-2);
+  border: var(--bw-thin) dashed var(--ink-soft);
+  border-radius: var(--r-md);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  font-family: var(--font-calligraphy);
+  text-align: center;
+}
+
+/* 底部 CTA */
+.bottom-bar {
+  position: sticky;
+  bottom: 0;
+  padding: var(--sp-3) var(--sp-4) calc(var(--sp-3) + env(safe-area-inset-bottom));
+  background: var(--paper);
+  border-top: 2px dashed var(--ink-soft);
+  display: flex;
+  gap: var(--sp-3);
+  z-index: 4;
+}
+.bottom-bar .btn { flex: 1; min-height: 48px; }
+.bottom-bar .btn.ghost { flex: 0 0 auto; min-width: 120px; }
+
+/* 移动端 layers list 抽屉（点「查看清单」） */
+.layers-list-mobile {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.25s ease;
+  background: var(--paper-2);
+  border-top: var(--bw-thin) dashed var(--ink-soft);
+}
+.layers-list-mobile.open { max-height: 260px; overflow-y: auto; }
+.layer-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  border-bottom: var(--bw-thin) dashed var(--ink-soft);
+  font-size: var(--fs-sm);
+  background: var(--paper-2);
+  cursor: pointer;
+  min-height: 56px;
+  width: 100%;
+  text-align: left;
+  border-left: none;
+  border-right: none;
+  border-top: none;
+}
+.layer-row:hover { background: var(--paper-3); }
+.layer-row:last-child { border-bottom: none; }
+.layer-row .layer-meta { flex: 1; min-width: 0; }
+.layer-row .layer-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  color: var(--ink);
+  margin-bottom: 2px;
+}
+.layer-row .layer-desc {
+  color: var(--ink-soft);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+
+/* ============================================================
+   CONFIRM 底部抽屉
+   ============================================================ */
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(74, 52, 42, 0.42);
+  display: flex; align-items: flex-end; justify-content: center;
+  z-index: 50;
+  animation: fadein var(--t-mid);
+}
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+.confirm-sheet {
+  width: 100%;
+  max-width: 480px;
+  background: var(--paper);
+  border-top: var(--bw) solid var(--ink);
+  border-top-left-radius: var(--r-lg);
+  border-top-right-radius: var(--r-lg);
+  box-shadow: 0 -8px 0 var(--ink), 0 -10px 24px var(--shadow);
+  padding: var(--sp-4) var(--sp-5) calc(var(--sp-5) + env(safe-area-inset-bottom));
+  text-align: center;
+  pointer-events: auto;
+  animation: slideup var(--t-slow);
+}
+@keyframes slideup {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+.confirm-sheet .handle {
+  width: 48px; height: 4px;
+  background: var(--ink-soft);
+  border-radius: 2px;
+  margin: 0 auto var(--sp-3);
+}
+.confirm-sheet .mascot-confirm {
+  width: 80px; height: 80px;
+  margin: 0 auto var(--sp-3);
+  filter: drop-shadow(3px 3px 0 var(--ink));
+  animation: wave 2s ease-in-out infinite;
+}
+.confirm-sheet .mascot-confirm img { width: 100%; height: 100%; object-fit: contain; }
+.confirm-sheet .ask {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  color: var(--accent-2);
+  line-height: 1.4;
+  margin-bottom: var(--sp-3);
+}
+.confirm-sheet .crop-preview {
+  width: 96px; height: 96px;
+  margin: 0 auto var(--sp-3);
+  background: var(--canvas-bg);
+  border: var(--bw) solid var(--ink);
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-stamp-sm);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+.confirm-sheet .eta-pill {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  background: var(--paper-2);
+  border: var(--bw-thin) dashed var(--ink-soft);
+  border-radius: var(--r-pill);
+  padding: 6px 14px;
+  margin-bottom: var(--sp-3);
+}
+.confirm-sheet .note {
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  line-height: 1.6;
+  max-width: 320px;
+  margin: 0 auto var(--sp-4);
+}
+.confirm-sheet .btn-stack {
+  display: flex; flex-direction: column; gap: var(--sp-2);
+}
+@keyframes wave {
+  0%, 100% { transform: rotate(-3deg); }
+  50%      { transform: rotate(3deg); }
+}
+
+/* ============================================================
+   LOADING 视图（3 阶段）
+   ============================================================ */
+.s-loading {
+  flex: 1;
+  padding: var(--sp-6) var(--sp-5) var(--sp-5);
+  text-align: center;
+  display: flex; flex-direction: column; align-items: center;
+  background: var(--paper);
+  min-height: 100%;
+}
+.s-loading .mascot-bob {
+  width: 110px; height: 110px;
+  margin-bottom: var(--sp-4);
+  filter: drop-shadow(3px 3px 0 var(--ink));
+  animation: spin-bob 1.5s ease-in-out infinite;
+}
+.s-loading .mascot-bob img { width: 100%; height: 100%; object-fit: contain; }
+@keyframes spin-bob {
+  0%, 100% { transform: translateY(0) rotate(-5deg); }
+  50%      { transform: translateY(-6px) rotate(5deg); }
+}
+
+.stage-track {
+  display: flex; align-items: center; gap: var(--sp-2);
+  margin-bottom: var(--sp-4);
+}
+.stage-step {
+  display: flex; flex-direction: column; align-items: center;
+  gap: 4px;
+}
+.stage-dot {
+  width: 32px; height: 32px; border-radius: 50%;
+  border: var(--bw-thin) solid var(--ink);
+  background: var(--paper-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background var(--t-fast), color var(--t-fast),
+              box-shadow var(--t-fast);
+}
+.stage-dot.done { background: var(--leaf); color: var(--paper); border-color: var(--ink); }
+.stage-dot.active { background: var(--accent); color: #fff; box-shadow: var(--shadow-stamp-sm); }
+.stage-label {
+  font-family: var(--font-calligraphy);
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+.stage-link {
+  width: 32px; height: var(--bw-thin); background: var(--ink-soft);
+  align-self: center;
+  margin-bottom: 14px;
+}
+
+.s-loading .quip {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  color: var(--ink);
+  margin-bottom: var(--sp-2);
+  min-height: 28px;
+}
+.s-loading .quip .dots::after {
+  content: '...';
+  display: inline-block;
+  min-width: 18px;
+  animation: dotloop 1.5s steps(4, end) infinite;
+}
+@keyframes dotloop {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+}
+.s-loading .sub-quip {
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+  margin-bottom: var(--sp-4);
+  min-height: 18px;
+  transition: opacity var(--t-mid);
+}
+.s-loading .timer {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  margin-bottom: var(--sp-5);
+}
+.s-loading .peek-card {
+  display: flex; align-items: center; gap: var(--sp-3);
+  background: var(--paper-2);
+  border: var(--bw-thin) dashed var(--ink-soft);
+  border-radius: var(--r-md);
+  padding: var(--sp-3);
+  margin-top: auto;
+  width: 100%; max-width: 360px;
+  text-align: left;
+}
+.s-loading .peek-card .peek-thumb {
+  width: 64px; height: 64px;
+  background: var(--canvas-bg);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  border: var(--bw-thin) solid var(--ink);
+  border-radius: var(--r-sm);
+  flex-shrink: 0;
+}
+.s-loading .peek-card .peek-text {
+  font-size: var(--fs-xs);
+  color: var(--ink-soft);
+  line-height: 1.5;
+  flex: 1; min-width: 0;
+}
+.s-loading .peek-card .peek-text .peek-label {
+  font-family: var(--font-display);
+  color: var(--ink);
+  font-size: var(--fs-sm);
+}
+.s-loading .timeout-hint {
+  margin-top: var(--sp-3);
+  font-family: var(--font-calligraphy);
+  font-size: var(--fs-sm);
+  color: var(--ink-soft);
+}
+.s-loading .timeout-hint a {
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ============================================================
+   <ToastBanner>（错误统一形态）
+   ============================================================ */
+#toast-container {
+  position: fixed;
+  top: env(safe-area-inset-top, 0);
+  left: 0; right: 0;
+  padding: var(--sp-3);
+  display: flex; flex-direction: column; gap: var(--sp-2);
+  pointer-events: none;
+  z-index: 100;
+}
+.toast-banner {
+  pointer-events: auto;
+  background: var(--paper);
+  border: var(--bw) solid var(--accent);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-stamp);
+  padding: var(--sp-3) var(--sp-4);
+  display: flex; align-items: center; gap: var(--sp-3);
+  max-width: 540px;
+  width: 100%;
+  margin: 0 auto;
+  animation: slidein-top var(--t-slow);
+}
+.toast-banner.info { border-color: var(--leaf); }
+@keyframes slidein-top {
+  from { transform: translateY(-110%); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+.toast-banner.dismiss {
+  animation: slideout-top var(--t-mid) forwards;
+}
+@keyframes slideout-top {
+  to { transform: translateY(-110%); opacity: 0; }
+}
+.toast-banner .t-icon {
+  width: 24px; height: 24px;
+  border: var(--bw-thin) solid var(--accent);
+  border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-family: var(--font-display);
+  color: var(--accent);
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+}
+.toast-banner.info .t-icon {
+  border-color: var(--leaf);
+  color: var(--leaf);
+}
+.toast-banner .t-msg {
+  font-family: var(--font-body);
+  font-size: var(--fs-sm);
+  color: var(--ink);
+  line-height: 1.4;
+  flex: 1;
+}
+.toast-banner .t-retry {
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  color: var(--accent);
+  background: transparent;
+  border: var(--bw-thin) solid var(--accent);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  cursor: pointer;
+  min-height: 32px;
+}
+.toast-banner .t-close {
+  border: none;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-display);
+  font-size: var(--fs-md);
+  width: 28px; height: 28px;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+
+/* ============================================================
+   桌面端三列布局（>= 1024）
+   ============================================================ */
+.mindmap-pane,
+.layers-pane { display: none; }
+
+@media (min-width: 1024px) {
+  .s-explore {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr) 280px;
     flex: 1;
     min-height: 0;
-    overflow: hidden;
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    background: #000;
   }
-  .canvas-host {
-    position: relative;
-    max-width: 100%;
-    max-height: 100%;
+
+  .s-explore .topbar { padding: var(--sp-4) var(--sp-5); }
+
+  /* 把 topbar / canvas / list / bottom-bar 收进中间列 */
+  .center-pane {
+    display: flex; flex-direction: column; min-width: 0; min-height: 0;
   }
-  .canvas-img {
+
+  /* 移动端面包屑桌面隐藏 */
+  .breadcrumb-vine { display: none; }
+
+  /* mindmap 左列 */
+  .mindmap-pane {
     display: block;
-    max-width: 100%;
-    max-height: calc(100vh - 220px);
-    height: auto;
-    width: auto;
-    user-select: none;
-    -webkit-user-drag: none;
-  }
-  .canvas-overlay {
-    position: absolute;
-    inset: 0;
-    touch-action: none;
-    pointer-events: none;
-  }
-  .canvas-overlay.selecting { pointer-events: auto; }
-  .scrim {
-    position: absolute; inset: 0;
-    background: rgba(0,0,0,0.35);
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.18s ease;
-  }
-  .canvas-overlay.selecting .scrim { opacity: 1; }
-  .redbox {
-    position: absolute;
-    border: 3px solid var(--accent);
-    box-shadow: 0 0 0 9999px rgba(0,0,0,0.0);
-    background: rgba(255, 107, 61, 0.06);
-    pointer-events: none;
-    display: none;
-  }
-  .redbox.visible { display: block; }
-  .hint {
-    position: absolute;
-    bottom: 12px; left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0,0,0,0.7);
-    color: #fff;
-    padding: 6px 12px;
-    border-radius: 999px;
-    font-size: 12px;
-    pointer-events: none;
-  }
-
-  /* 候选 layer hover ring (双击吸附用) */
-  .candidate {
-    position: absolute;
-    border: 2px dashed rgba(255, 107, 61, 0.5);
-    border-radius: 4px;
-    pointer-events: none;
-    opacity: 0;
-    transition: opacity 0.15s ease;
-  }
-  .candidate.show { opacity: 1; }
-
-  /* 底部 CTA */
-  .bottom-bar {
-    position: sticky;
-    bottom: 0;
-    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
-    background: rgba(13,13,15,0.92);
-    backdrop-filter: blur(12px);
-    border-top: 1px solid var(--line);
-    display: flex;
-    gap: 10px;
-  }
-  .cta {
-    flex: 1;
-    padding: 14px 18px;
-    background: var(--accent);
-    color: #fff;
-    border-radius: 14px;
-    font-size: 15px;
-    font-weight: 700;
-  }
-  .cta.secondary {
-    background: var(--bg-2);
-    color: var(--fg);
-    flex: 0 0 auto;
-  }
-  .cta:active { transform: scale(0.98); }
-  .cta:disabled { opacity: 0.5; }
-
-  /* 字段列表（爆炸图下方可滚 layers） */
-  .layers-list {
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.25s ease;
-    background: var(--bg-2);
-    border-top: 1px solid var(--line);
-  }
-  .layers-list.open { max-height: 240px; overflow-y: auto; }
-  .layer-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--line);
-    font-size: 13px;
-  }
-  .layer-row:last-child { border-bottom: none; }
-  .layer-kind {
-    flex: 0 0 auto;
-    font-size: 10px;
-    padding: 3px 7px;
-    border-radius: 6px;
-    background: var(--accent-soft);
-    color: var(--accent);
-    font-weight: 700;
-  }
-  .layer-kind.tool { background: rgba(154,154,163,0.18); color: var(--fg-mute); }
-  .layer-name { flex: 1; font-weight: 600; }
-  .layer-desc { color: var(--fg-mute); font-size: 12px; max-width: 60%;
-                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-
-  /* 隐藏 input */
-  input[type=file] { display: none; }
-
-  /* ============ 桌面端思维导图（>=1024px）============ */
-  .mindmap {
-    display: none;
-    flex: 0 0 380px;
-    background: var(--bg-2);
-    border-right: 1px solid var(--line);
-    padding: 16px 12px 24px 12px;
+    background: var(--paper-2);
+    border-right: 2px dashed var(--ink-soft);
+    padding: var(--sp-4);
     overflow-y: auto;
   }
-  .mm-title {
-    font-size: 12px;
-    color: var(--fg-mute);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    padding: 4px 8px 12px;
+  .mm-section-title {
+    font-family: var(--font-calligraphy);
+    font-size: var(--fs-sm);
+    color: var(--ink-soft);
+    padding: var(--sp-2) var(--sp-3) var(--sp-4);
+    display: flex; justify-content: space-between; align-items: baseline;
   }
-  .mm-branch {
-    position: relative;
-    margin-bottom: 4px;
-  }
+  .mm-section-title small { font-family: var(--font-mono); font-size: var(--fs-xs); }
   .mm-trunk {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 12px;
-    border-radius: 10px;
+    display: flex; align-items: center; gap: var(--sp-3);
+    padding: var(--sp-3);
+    background: var(--paper);
+    border: var(--bw-thin) solid transparent;
+    border-radius: var(--r-md);
+    margin-bottom: var(--sp-2);
     cursor: pointer;
-    background: transparent;
-    text-align: left;
     width: 100%;
-    color: var(--fg);
-    border: 2px solid transparent;
-    transition: background 0.15s ease, border 0.15s ease;
+    text-align: left;
+    color: var(--ink);
+    transition: border var(--t-fast), background var(--t-fast);
+    min-height: 56px;
   }
-  .mm-trunk:hover { background: rgba(255,255,255,0.04); }
-  .mm-trunk.active { border-color: var(--accent); background: var(--accent-soft); }
-  .mm-trunk img {
-    width: 32px; height: 32px;
-    border-radius: 6px;
-    object-fit: cover;
-    background: #000;
-    flex: 0 0 auto;
+  .mm-trunk:hover { background: var(--paper-3); }
+  .mm-trunk.collapsed { opacity: 0.78; }
+  .mm-trunk .mm-thumb {
+    width: 40px; height: 40px;
+    background: var(--canvas-bg);
+    background-size: cover;
+    background-position: center;
+    border-radius: var(--r-sm);
+    border: var(--bw-thin) solid var(--ink);
+    flex-shrink: 0;
   }
-  .mm-trunk-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-  .mm-trunk-name {
-    font-size: 14px; font-weight: 700;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .mm-trunk-lv {
+  .mm-trunk .mm-label { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+  .mm-trunk .mm-lv {
+    font-family: var(--font-mono);
     font-size: 10px;
     color: var(--accent);
     font-weight: 700;
-    letter-spacing: 0.05em;
   }
+  .mm-trunk .mm-name {
+    font-family: var(--font-display);
+    font-size: var(--fs-md);
+    color: var(--ink);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .mm-trunk.active {
+    background: var(--paper);
+    border-color: var(--accent);
+    box-shadow: var(--shadow-stamp-sm);
+  }
+  .mm-trunk .mm-arrow {
+    font-family: var(--font-display);
+    font-size: var(--fs-md);
+    color: var(--ink-soft);
+  }
+  .mm-trunk.active .mm-arrow { color: var(--accent); }
   .mm-leaves {
-    margin-left: 28px;
-    padding-left: 12px;
-    border-left: 2px dashed rgba(255,255,255,0.1);
-    margin-top: 4px;
-    margin-bottom: 8px;
+    margin-left: var(--sp-7);
+    padding-left: var(--sp-3);
+    border-left: 2px dashed var(--ink-soft);
+    margin-top: -2px; margin-bottom: var(--sp-3);
   }
   .mm-leaf {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 8px;
-    margin: 2px 0;
-    border-radius: 6px;
-    font-size: 12px;
+    display: flex; align-items: center; gap: var(--sp-2);
+    padding: var(--sp-3);
+    font-family: var(--font-body);
+    font-size: var(--fs-sm);
+    color: var(--ink-soft);
     cursor: pointer;
-    color: var(--fg-mute);
+    border-radius: var(--r-sm);
     background: transparent;
     width: 100%;
     text-align: left;
-    border: 1px dashed transparent;
-    transition: all 0.15s ease;
+    border: none;
+    min-height: 44px;
   }
-  .mm-leaf:hover {
-    color: var(--fg);
-    background: rgba(255,255,255,0.04);
-    border-color: rgba(255, 107, 61, 0.4);
+  .mm-leaf:hover { background: var(--paper-3); color: var(--ink); }
+  .mm-leaf.drilled { color: var(--accent); font-weight: 600; }
+  .mm-leaf .leaf-shape {
+    flex: 0 0 8px; width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--leaf);
   }
-  .mm-leaf.drilled {
-    color: var(--accent);
-    font-weight: 600;
-    border-style: solid;
-    border-color: rgba(255, 107, 61, 0.4);
-  }
-  .mm-leaf .mm-leaf-kind {
-    font-size: 11px;
-    flex: 0 0 auto;
-    opacity: 0.7;
-  }
-  .mm-leaf-name {
-    flex: 1;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
-  .mm-leaf-arrow {
-    flex: 0 0 auto;
-    font-size: 14px;
-    color: var(--accent);
-    opacity: 0;
-    transition: opacity 0.15s ease;
-  }
-  .mm-leaf:hover .mm-leaf-arrow,
-  .mm-leaf.drilled .mm-leaf-arrow { opacity: 1; }
+  .mm-leaf .leaf-shape.tool { background: var(--tool); border-radius: 0; }
+  .mm-leaf .leaf-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .mm-leaf .leaf-arrow { font-family: var(--font-display); font-size: var(--fs-sm); color: var(--accent); }
 
-  @media (min-width: 1024px) {
-    .upload h1 { font-size: 44px; }
-    .explore { flex-direction: row; }
-    .mindmap { display: block; }
-    .breadcrumb { display: none; }
-    .right-pane {
-      display: flex;
-      flex-direction: column;
-      flex: 1;
-      min-width: 0;
-    }
-    .topbar { padding: 16px 24px; }
-    .canvas-img { max-height: calc(100vh - 220px); }
-    .bottom-bar { padding: 16px 24px calc(16px + env(safe-area-inset-bottom)); }
-    .cta { flex: 0 0 auto; padding: 12px 28px; min-width: 180px; }
-    .cta.secondary { padding: 12px 18px; min-width: auto; }
-    /* 桌面端把 layers-list 默认展开（始终可见） */
-    .layers-list { max-height: 220px; }
-    .layers-list:not(.open) { max-height: 0; }
+  /* layers 右列 */
+  .layers-pane {
+    display: block;
+    background: var(--paper-2);
+    border-left: 2px dashed var(--ink-soft);
+    padding: var(--sp-4);
+    overflow-y: auto;
   }
+  .layers-pane h3 {
+    font-family: var(--font-calligraphy);
+    font-size: var(--fs-sm);
+    color: var(--ink-soft);
+    margin-bottom: var(--sp-3);
+    font-weight: 400;
+  }
+  .layers-pane .layer-row {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--sp-2);
+    padding: var(--sp-3);
+    background: var(--paper);
+    border: var(--bw-thin) solid var(--ink);
+    border-radius: var(--r-sm);
+    margin-bottom: var(--sp-2);
+    box-shadow: var(--shadow-stamp-sm);
+    font-size: var(--fs-xs);
+    width: 100%;
+    text-align: left;
+  }
+
+  /* 桌面端隐藏移动 layer 抽屉 */
+  .layers-list-mobile { display: none; }
+
+  /* upload 桌面布局 */
+  .s-upload .hero-title { font-size: 56px; }
+  .s-upload .hero-area { padding: var(--sp-7) var(--sp-5) var(--sp-5); }
+  .s-upload .upload-cta { max-width: 400px; margin: 0 auto; }
+  .s-upload .history-block { padding-left: var(--sp-6); padding-right: var(--sp-6); }
+}
+
+/* ============================================================
+   完成态 publish 区
+   ============================================================ */
+.publish-strip {
+  padding: var(--sp-4);
+  background: var(--paper-2);
+  border-top: 2px dashed var(--ink-soft);
+  text-align: center;
+}
+.publish-strip .label {
+  font-family: var(--font-calligraphy);
+  color: var(--ink-soft);
+  font-size: var(--fs-sm);
+  margin-bottom: var(--sp-3);
+}
+.publish-strip .btn-row {
+  display: flex; gap: var(--sp-2); justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
+   a11y · prefers-reduced-motion
+   ============================================================ */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .mascot-bob, .mascot-confirm { animation: none; }
+  .s-loading .quip .dots::after { content: '...'; animation: none; }
+}
 </style>
 </head>
 <body>
-  <div id="app"></div>
+  <div id="app" aria-live="polite"></div>
+  <div id="toast-container" aria-live="polite"></div>
 
 <script>
 "use strict";
 
-// ============================================================
-// 状态机
-// ============================================================
+/* ============================================================
+   常量
+   ============================================================ */
+const MASCOT_URL = "/static/lilibear_logo.png";
+
 const STATE = {
   UPLOAD: "upload",
   LOADING: "loading",
   EXPLORE: "explore",
-  ERROR: "error",
 };
 
+// 后端阶段 → 前端 3 圈映射
+// 圈 1 (审核) / 圈 2 (识菜) / 圈 3 (画图)
+const STAGE_INDEX = {
+  queued:     0,
+  moderation: 0,
+  identify:   1,
+  image_gen:  2,
+  extract:    2,
+  done:       3,
+  error:      -1,
+};
+
+const STAGE_LABELS = ["审核", "识菜", "画图"];
+const STAGE_QUIPS = {
+  queued:     "排队中",
+  moderation: "AI 正在检查这是不是食物",
+  identify:   "AI 在认这是啥菜",
+  image_gen:  "AI 正在画爆炸图",
+  extract:    "AI 正在拆出每一行物体",
+  done:       "完成啦",
+  error:      "出错了",
+};
+const SUB_QUIPS = [
+  "拆食物比拆快递有意思",
+  "你框的那一块马上会被钻进去",
+  "番茄酱原来要 4 种原料",
+  "等下你会看到悬浮在原图背景里的物体",
+  "AI 正在给每一行手写中文标签",
+  "厦大美食协会出品，慢工出细活",
+];
+
+const DEMO_CHIPS = [
+  "披萨 › 番茄酱 › 番茄",
+  "寿司 › 醋饭 › 米",
+  "麻婆豆腐 › 豆腐",
+  "拉面 › 高汤 › 鸡架",
+];
+
+const MY_JOURNEYS_KEY = "explorecipe_v2_myjourneys";
+const MY_JOURNEYS_MAX = 12;
+
+/* ============================================================
+   app state
+   ============================================================ */
 const app = {
-  state: STATE.UPLOAD,
+  view: STATE.UPLOAD,
+
+  // EXPLORE
   journeyId: null,
-  meta: null,          // { current_level, path[], dish_name_zh, ... }
-  layersByLevel: {},   // { "1": [...], "2": [...] }
+  meta: null,
+  layersByLevel: {},
   activeLevel: 1,
   selecting: false,
-  cropPreviewUrl: null,
-  loadingBrief: "",
-  loadingTitle: "",
-  loadingEta: "约 60-90 秒",
-  errorMsg: "",
   showLayers: false,
+  isPublished: false,
+
+  // CONFIRM overlay
+  confirming: false,
+  pendingBbox: null,
+  pendingCropUrl: null,
+  pendingTargetName: "",
+  pendingTargetKind: "ingredient",
+
+  // LOADING
+  loadingType: "start", // 'start' | 'drill'
+  loadingJobId: null,
+  loadingStartedAt: 0,
+  loadingStage: "queued",
+  loadingPeekThumbUrl: null,
+  loadingPeekLabel: "",
+  loadingPeekSub: "",
+  loadingSubQuipIdx: 0,
+  loadingTickTimer: null,
+  loadingPollTimer: null,
+  loadingSubQuipTimer: null,
+  loadingSourceImageUrl: null,  // 用户首次上传的预览图（drill 时复用作 peek）
+
+  // UPLOAD 卷轴
+  myJourneys: [],
+  trending: [],
+  trendingLoaded: false,
+
+  // 历史 focus 回归（focus trap）
+  confirmTriggerEl: null,
 };
 
 const root = document.getElementById("app");
+
+/* ============================================================
+   小工具
+   ============================================================ */
+function escapeHtml(s) {
+  return String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;").replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatElapsed(secs) {
+  const s = Math.max(0, Math.floor(secs));
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m + ":" + String(r).padStart(2, "0");
+}
 
 function setState(patch) {
   Object.assign(app, patch);
   render();
 }
 
-// ============================================================
-// 渲染
-// ============================================================
+function urlFor(jid) {
+  return location.origin + "/j/" + jid;
+}
+
+/* ============================================================
+   Toast banner（替代 alert）
+   ============================================================ */
+const toastContainer = document.getElementById("toast-container");
+
+function showToast({ msg, kind, retry, autoCloseMs }) {
+  // kind: 'error' (default) | 'info'
+  const k = kind === "info" ? "info" : "error";
+  const banner = document.createElement("div");
+  banner.className = "toast-banner " + k;
+  banner.setAttribute("role", k === "error" ? "alert" : "status");
+  banner.setAttribute("aria-live", k === "error" ? "assertive" : "polite");
+  const icon = k === "error" ? "!" : "✓";
+  banner.innerHTML = `
+    <span class="t-icon" aria-hidden="true">${icon}</span>
+    <span class="t-msg">${escapeHtml(msg)}</span>
+    ${retry ? `<button type="button" class="t-retry" aria-label="重试">重试</button>` : ""}
+    <button type="button" class="t-close" aria-label="关闭通知">×</button>
+  `;
+  toastContainer.appendChild(banner);
+
+  let dismissed = false;
+  const dismiss = () => {
+    if (dismissed) return;
+    dismissed = true;
+    banner.classList.add("dismiss");
+    setTimeout(() => banner.remove(), 280);
+  };
+
+  banner.querySelector(".t-close").addEventListener("click", dismiss);
+  if (retry) {
+    banner.querySelector(".t-retry").addEventListener("click", () => {
+      dismiss();
+      try { retry(); } catch (e) { console.warn(e); }
+    });
+  }
+
+  // 自动消（hover 暂停）
+  const ttl = autoCloseMs || (k === "error" ? 8000 : 4000);
+  let timer = setTimeout(dismiss, ttl);
+  banner.addEventListener("mouseenter", () => clearTimeout(timer));
+  banner.addEventListener("mouseleave", () => {
+    if (!dismissed) timer = setTimeout(dismiss, 2500);
+  });
+
+  return dismiss;
+}
+
+/* ============================================================
+   localStorage · 我的拆解夹
+   ============================================================ */
+function loadMyJourneys() {
+  try {
+    const raw = localStorage.getItem(MY_JOURNEYS_KEY);
+    if (!raw) return [];
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return [];
+    return arr.filter(e => e && e.journey_id);
+  } catch (e) { return []; }
+}
+
+function saveMyJourneys(list) {
+  try {
+    localStorage.setItem(MY_JOURNEYS_KEY,
+      JSON.stringify(list.slice(0, MY_JOURNEYS_MAX)));
+  } catch (e) { /* ignore quota */ }
+}
+
+function recordMyJourney(meta) {
+  if (!meta || !meta.journey_id) return;
+  const lv1 = (meta.path && meta.path[0]) || null;
+  const entry = {
+    journey_id: meta.journey_id,
+    dish_name_zh: meta.dish_name_zh || (lv1 && lv1.title_zh) || "未命名",
+    lv1_image_url: lv1 && lv1.image_url,
+    level_count: (meta.path || []).length,
+    last_visited: Date.now(),
+  };
+  let list = loadMyJourneys();
+  list = list.filter(e => e.journey_id !== entry.journey_id);
+  list.unshift(entry);
+  saveMyJourneys(list);
+  app.myJourneys = list;
+}
+
+/* ============================================================
+   渲染：根派发
+   ============================================================ */
 function render() {
-  // 删除旧 DOM，重建（简单粗暴，状态切换不频繁）
   root.innerHTML = "";
-  if (app.state === STATE.UPLOAD) return renderUpload();
-  if (app.state === STATE.LOADING) return renderLoading();
-  if (app.state === STATE.EXPLORE) return renderExplore();
-  if (app.state === STATE.ERROR) return renderError();
+  if (app.view === STATE.UPLOAD)  return renderUpload();
+  if (app.view === STATE.LOADING) return renderLoading();
+  if (app.view === STATE.EXPLORE) return renderExplore();
 }
 
+/* ============================================================
+   屏幕 1 · UPLOAD
+   ============================================================ */
 function renderUpload() {
-  const div = document.createElement("div");
-  div.className = "upload";
-  div.innerHTML = `
-    <h1><span class="accent">Explore</span>Cipe</h1>
-    <p>上传一张食物照片，AI 把它<b>无限分解</b>给你看。<br />
-       每一层都是一张新的爆炸图，沿着红框一直钻下去。</p>
-    ${ app.errorMsg ? `<div class="err-banner">${escapeHtml(app.errorMsg)}</div>` : "" }
-    <label class="upload-btn">
-      📷 选择图片
-      <input type="file" accept="image/*" />
-    </label>
-    <div class="upload-hint">支持 png / jpg / webp · 最大 12MB</div>
+  const screen = document.createElement("div");
+  screen.className = "screen s-upload";
+
+  screen.innerHTML = `
+    <header class="header">
+      <div class="mascot-logo" aria-hidden="true">
+        <img src="${MASCOT_URL}" alt="" />
+      </div>
+      <div class="header-text">
+        <h1>ExploreCipe</h1>
+        <div class="sub">厦大美食协会出品 · 把食物拆给你看</div>
+      </div>
+    </header>
+
+    <div class="hero-area">
+      <div class="hero-mascot" aria-hidden="true">
+        <img src="${MASCOT_URL}" alt="" />
+      </div>
+      <h2 class="hero-title">拆食物</h2>
+      <p class="tagline">上传一张食物照片<br/>AI 把它一层层拆给你看<br/>你来决定钻多深</p>
+    </div>
+
+    <div class="chip-row" aria-label="探索示例">
+      ${DEMO_CHIPS.map(t => `<span class="demo-chip">${escapeHtml(t)}</span>`).join("")}
+    </div>
+
+    <div class="upload-cta">
+      <label class="btn primary block" id="upload-label">
+        <span>选张图开始拆</span>
+        <input type="file" accept="image/*" aria-label="选择食物图片" />
+      </label>
+      <div class="upload-hint">png / jpg / webp · 最大 12 MB</div>
+    </div>
+
+    <section class="history-block" aria-labelledby="my-title">
+      <div class="title">
+        <span id="my-title">我的拆解夹</span>
+        <small id="my-count">本机</small>
+      </div>
+      <div class="history-row" id="my-row" role="list"></div>
+    </section>
+
+    <section class="history-block" aria-labelledby="trending-title">
+      <div class="title">
+        <span id="trending-title">大家最近拆过</span>
+        <small id="trending-count">全站 trending</small>
+      </div>
+      <div class="history-row" id="trending-row" role="list"></div>
+    </section>
   `;
-  root.appendChild(div);
-  div.querySelector("input").addEventListener("change", onFileChosen);
+  root.appendChild(screen);
+
+  // 文件选择
+  screen.querySelector("input[type=file]").addEventListener("change", onFileChosen);
+
+  // 渲染历史
+  app.myJourneys = loadMyJourneys();
+  renderMyRow(screen.querySelector("#my-row"));
+  screen.querySelector("#my-count").textContent =
+    app.myJourneys.length ? "本机 · " + app.myJourneys.length + " 次" : "本机 · 还是空的";
+
+  renderTrendingRow(screen.querySelector("#trending-row"));
+  if (!app.trendingLoaded) {
+    fetchTrending(20).then(items => {
+      app.trending = items;
+      app.trendingLoaded = true;
+      if (app.view === STATE.UPLOAD) {
+        const cont = document.querySelector("#trending-row");
+        const ct = document.querySelector("#trending-count");
+        if (cont) renderTrendingRow(cont);
+        if (ct) ct.textContent = items.length
+          ? "全站 · " + items.length + " 条"
+          : "全站 · 还没有人发到 trending";
+      }
+    }).catch(() => {});
+  }
 }
 
-function renderLoading() {
-  const div = document.createElement("div");
-  div.className = "loading";
-  div.innerHTML = `
-    ${ app.cropPreviewUrl
-        ? `<img class="loading-crop" src="${app.cropPreviewUrl}" />`
-        : `<div class="spinner"></div>` }
-    <div class="loading-title">${ escapeHtml(app.loadingTitle || "AI 正在生成爆炸图…") }</div>
-    <div class="loading-eta">⏳ ${ escapeHtml(app.loadingEta) }</div>
-    ${ app.loadingBrief
-        ? `<div class="loading-brief"><span class="label">这是：</span>${ escapeHtml(app.loadingBrief) }</div>`
-        : "" }
-  `;
-  root.appendChild(div);
-}
-
-function renderError() {
-  const div = document.createElement("div");
-  div.className = "upload";
-  div.innerHTML = `
-    <h1>出错了</h1>
-    <div class="err-banner">${escapeHtml(app.errorMsg || "未知错误")}</div>
-    <button class="upload-btn" id="retry-btn">返回</button>
-  `;
-  root.appendChild(div);
-  div.querySelector("#retry-btn").addEventListener("click", () => {
-    setState({ state: STATE.UPLOAD, errorMsg: "", journeyId: null, meta: null });
+function renderMyRow(container) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!app.myJourneys.length) {
+    container.innerHTML = `<div class="empty">还没拆过，挑张食物图开始吧</div>`;
+    return;
+  }
+  app.myJourneys.forEach(j => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "history-card";
+    card.setAttribute("role", "listitem");
+    card.setAttribute("aria-label",
+      "重新打开 " + (j.dish_name_zh || "拆解") + "，共 " + (j.level_count || 1) + " 层");
+    card.innerHTML = `
+      <div class="thumb" style="background-image: url('${escapeHtml(j.lv1_image_url || "")}');"></div>
+      <div class="name">${escapeHtml(j.dish_name_zh || "未命名")}</div>
+      <div class="sub-meta">L${j.level_count || 1}</div>
+    `;
+    card.addEventListener("click", () => openJourney(j.journey_id));
+    container.appendChild(card);
   });
 }
 
+function renderTrendingRow(container) {
+  if (!container) return;
+  container.innerHTML = "";
+  if (!app.trendingLoaded) {
+    container.innerHTML = `<div class="empty">加载中…</div>`;
+    return;
+  }
+  if (!app.trending.length) {
+    container.innerHTML = `<div class="empty">还没有人发到 trending</div>`;
+    return;
+  }
+  app.trending.forEach(t => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "history-card";
+    card.setAttribute("role", "listitem");
+    card.setAttribute("aria-label",
+      "打开 " + (t.dish_name_zh || "拆解") + "，共 " + (t.level_count || 1) + " 层");
+    card.innerHTML = `
+      <div class="thumb" style="background-image: url('${escapeHtml(t.lv1_image_url || "")}');"></div>
+      <div class="name">${escapeHtml(t.dish_name_zh || "未命名")}</div>
+      <div class="sub-meta">L${t.level_count || 1}</div>
+    `;
+    card.addEventListener("click", () => openJourney(t.journey_id));
+    container.appendChild(card);
+  });
+}
+
+async function fetchTrending(limit) {
+  try {
+    const r = await fetch("/api/trending?limit=" + limit);
+    const j = await r.json();
+    if (!j.ok) return [];
+    return j.items || [];
+  } catch (e) {
+    return [];
+  }
+}
+
+/* ============================================================
+   屏幕 4 · LOADING
+   ============================================================ */
+function renderLoading() {
+  const screen = document.createElement("div");
+  screen.className = "screen s-loading";
+
+  // 3 阶段映射
+  const idx = STAGE_INDEX[app.loadingStage] != null
+    ? STAGE_INDEX[app.loadingStage]
+    : 0;
+  const isDrill = app.loadingType === "drill";
+
+  function dotClass(i) {
+    // drill 流程：圈 1（审核）一直 done
+    if (isDrill && i === 0) return "stage-dot done";
+    if (idx === 3) return "stage-dot done";  // 全部完成
+    if (idx > i)  return "stage-dot done";
+    if (idx === i) return "stage-dot active";
+    return "stage-dot";
+  }
+
+  function dotContent(i) {
+    if (isDrill && i === 0) return "✓";
+    if (idx === 3 || idx > i) return "✓";
+    return String(i + 1);
+  }
+
+  const quip = STAGE_QUIPS[app.loadingStage] || "AI 正在工作";
+  const subQuip = SUB_QUIPS[app.loadingSubQuipIdx % SUB_QUIPS.length];
+  const elapsed = (Date.now() - app.loadingStartedAt) / 1000;
+  const etaLow = isDrill ? 50 : 60;
+  const etaHigh = isDrill ? 80 : 90;
+  const showTimeout = elapsed > etaHigh + 30;
+
+  screen.innerHTML = `
+    <div class="mascot-bob" aria-hidden="true">
+      <img src="${MASCOT_URL}" alt="" />
+    </div>
+
+    <div class="stage-track" role="progressbar"
+         aria-label="生成进度"
+         aria-valuemin="0" aria-valuemax="3"
+         aria-valuenow="${Math.min(3, idx + (idx >= 0 ? 0 : 1))}">
+      ${[0, 1, 2].map(i => `
+        <div class="stage-step">
+          <div class="${dotClass(i)}" aria-label="阶段 ${i + 1} ${STAGE_LABELS[i]}">${dotContent(i)}</div>
+          <div class="stage-label">${STAGE_LABELS[i]}</div>
+        </div>
+        ${i < 2 ? '<div class="stage-link" aria-hidden="true"></div>' : ""}
+      `).join("")}
+    </div>
+
+    <div class="quip">${escapeHtml(quip)}<span class="dots" aria-hidden="true"></span></div>
+    <div class="sub-quip" id="sub-quip">${escapeHtml(subQuip)}</div>
+    <div class="timer">已等待 ${formatElapsed(elapsed)} / 约 ${formatElapsed(etaLow)}-${formatElapsed(etaHigh)}</div>
+
+    ${ app.loadingPeekThumbUrl || app.loadingPeekLabel ? `
+      <div class="peek-card" aria-label="即将分解的内容">
+        ${ app.loadingPeekThumbUrl
+            ? `<div class="peek-thumb" style="background-image: url('${escapeHtml(app.loadingPeekThumbUrl)}');"></div>`
+            : `<div class="peek-thumb"></div>` }
+        <div class="peek-text">
+          <div class="peek-label">${escapeHtml(app.loadingPeekLabel || "你框的这一块")}</div>
+          ${escapeHtml(app.loadingPeekSub || "")}
+        </div>
+      </div>
+    ` : "" }
+
+    ${ showTimeout ? `
+      <div class="timeout-hint">
+        AI 比平常慢了一点，<a id="loading-back">返回首页</a> 也行，等好了再回来看。
+      </div>
+    ` : "" }
+  `;
+  root.appendChild(screen);
+
+  const backLink = screen.querySelector("#loading-back");
+  if (backLink) {
+    backLink.addEventListener("click", () => goHome(false));
+  }
+}
+
+/* 启动 LOADING：每秒刷新计时器；轮询 job 状态；轮转 sub-quip。 */
+function startLoading({ type, jobId, peekThumb, peekLabel, peekSub }) {
+  stopLoading();
+  app.view = STATE.LOADING;
+  app.loadingType = type;
+  app.loadingJobId = jobId;
+  app.loadingStartedAt = Date.now();
+  app.loadingStage = "queued";
+  app.loadingPeekThumbUrl = peekThumb || null;
+  app.loadingPeekLabel = peekLabel || "";
+  app.loadingPeekSub = peekSub || "";
+  app.loadingSubQuipIdx = Math.floor(Math.random() * SUB_QUIPS.length);
+  render();
+
+  app.loadingTickTimer = setInterval(() => {
+    if (app.view !== STATE.LOADING) return;
+    // 仅刷新计时器 / sub-quip / timeout hint，不重渲全部其它内容
+    const screen = document.querySelector(".s-loading");
+    if (!screen) return;
+    const timer = screen.querySelector(".timer");
+    const elapsed = (Date.now() - app.loadingStartedAt) / 1000;
+    const isDrill = app.loadingType === "drill";
+    const etaLow = isDrill ? 50 : 60;
+    const etaHigh = isDrill ? 80 : 90;
+    if (timer) {
+      timer.textContent = "已等待 " + formatElapsed(elapsed)
+        + " / 约 " + formatElapsed(etaLow) + "-" + formatElapsed(etaHigh);
+    }
+    // timeout hint 出现 / 消失 → 重渲一次
+    const hasHint = !!screen.querySelector(".timeout-hint");
+    if ((elapsed > etaHigh + 30) !== hasHint) render();
+  }, 1000);
+
+  app.loadingSubQuipTimer = setInterval(() => {
+    if (app.view !== STATE.LOADING) return;
+    app.loadingSubQuipIdx = (app.loadingSubQuipIdx + 1) % SUB_QUIPS.length;
+    const sq = document.querySelector("#sub-quip");
+    if (sq) {
+      sq.style.opacity = "0";
+      setTimeout(() => {
+        sq.textContent = SUB_QUIPS[app.loadingSubQuipIdx];
+        sq.style.opacity = "1";
+      }, 200);
+    }
+  }, 7000);
+
+  // 轮询 job
+  pollJob(jobId);
+}
+
+function stopLoading() {
+  if (app.loadingTickTimer) { clearInterval(app.loadingTickTimer); app.loadingTickTimer = null; }
+  if (app.loadingPollTimer) { clearTimeout(app.loadingPollTimer); app.loadingPollTimer = null; }
+  if (app.loadingSubQuipTimer) { clearInterval(app.loadingSubQuipTimer); app.loadingSubQuipTimer = null; }
+}
+
+async function pollJob(jobId) {
+  if (!jobId || app.loadingJobId !== jobId) return;
+  try {
+    const r = await fetch("/api/job/" + jobId);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "job 不存在");
+
+    if (j.stage && j.stage !== app.loadingStage) {
+      app.loadingStage = j.stage;
+      // stage 切换时全量重渲（包含进度圈 + quip）
+      render();
+    }
+    if (j.done) {
+      stopLoading();
+      if (j.success && j.result) {
+        await enterJourney(j.result);
+      } else {
+        const err = j.error || "未知错误";
+        app.view = STATE.UPLOAD;
+        render();
+        showToast({
+          kind: "error",
+          msg: friendlyError(err),
+          retry: app.loadingType === "drill" ? null : null,
+        });
+      }
+      return;
+    }
+  } catch (e) {
+    // 网络抖动一次不致命；继续 poll
+    console.warn("[poll]", e);
+  }
+  app.loadingPollTimer = setTimeout(() => pollJob(jobId), 1200);
+}
+
+function friendlyError(err) {
+  const s = String(err || "");
+  if (s.startsWith("REJECT_NOT_FOOD")) return "这张图似乎不是食物哦，换一张试试？";
+  if (s.startsWith("DEPTH_LIMIT")) return "已经钻到最深一层啦。";
+  if (s.startsWith("STATE_MISMATCH")) return "状态对不上，请刷新页面重来。";
+  if (s.startsWith("NOT_FOUND")) return "这次探索找不到了，可能已经过期。";
+  if (s.startsWith("BAD_REQUEST")) return "请求参数有问题：" + s.slice("BAD_REQUEST:".length).trim();
+  if (/timeout|timed out/i.test(s)) return "AI 上游响应超时，可能是堵车了。";
+  return "AI 这一层没画出来呢，可能是上游堵车了。";
+}
+
+/* ============================================================
+   屏幕 2 · EXPLORE
+   ============================================================ */
 function renderExplore() {
   const meta = app.meta;
-  const wrap = document.createElement("div");
-  wrap.className = "explore";
+  if (!meta) { app.view = STATE.UPLOAD; render(); return; }
 
-  // ---- 左侧：思维导图（桌面端可见，移动端 CSS 隐藏）----
-  wrap.appendChild(buildMindmap(meta));
+  const screen = document.createElement("div");
+  screen.className = "screen s-explore";
 
-  // ---- 右侧栏（桌面端 flex 子项，移动端等同 .explore） ----
-  const right = document.createElement("div");
-  right.className = "right-pane";
-  wrap.appendChild(right);
+  // 左 · mindmap（仅桌面 CSS 显示）
+  screen.appendChild(buildMindmap(meta));
 
-  // ---- topbar ----
+  // 中 · center-pane
+  const center = document.createElement("div");
+  center.className = "center-pane";
+  screen.appendChild(center);
+
+  // topbar
   const topbar = document.createElement("div");
   topbar.className = "topbar";
   topbar.innerHTML = `
-    <button class="topbar-btn" id="home-btn">← 首页</button>
-    <div class="topbar-title">${escapeHtml(meta.dish_name_zh || "ExploreCipe")}</div>
-    <button class="topbar-btn" id="copy-btn">分享</button>
+    <button class="icon-btn" id="back-btn" aria-label="返回首页">←</button>
+    <div class="mascot-mini" aria-hidden="true">
+      <img src="${MASCOT_URL}" alt="" />
+    </div>
+    <div class="dish-title">
+      <div class="dish-name">${escapeHtml(meta.dish_name_zh || "ExploreCipe")}</div>
+      <div class="level-tag">第 ${app.activeLevel} 层 · 共 ${meta.path.length} 步</div>
+    </div>
+    <button class="icon-btn" id="share-btn" aria-label="分享链接">⇪</button>
   `;
-  right.appendChild(topbar);
-  topbar.querySelector("#home-btn").addEventListener("click", () => {
-    if (confirm("回到首页将离开当前探索（已保存到链接，可粘贴回来）。继续？")) {
-      setState({ state: STATE.UPLOAD, journeyId: null, meta: null, errorMsg: "" });
-      history.replaceState(null, "", "/");
-    }
-  });
-  topbar.querySelector("#copy-btn").addEventListener("click", onShareClick);
+  center.appendChild(topbar);
+  topbar.querySelector("#back-btn").addEventListener("click", () => goHome(true));
+  topbar.querySelector("#share-btn").addEventListener("click", onShareClick);
 
-  // ---- 面包屑（仅移动端，桌面 CSS 隐藏）----
+  // 面包屑（移动端）
   const bc = document.createElement("div");
-  bc.className = "breadcrumb";
+  bc.className = "breadcrumb-vine";
+  bc.setAttribute("aria-label", "拆解路径");
   meta.path.forEach((node, idx) => {
-    const c = document.createElement("button");
-    c.className = "crumb" + (node.level === app.activeLevel ? " active" : "");
-    c.innerHTML = `
-      <img src="${node.image_url}" alt="" />
-      <span class="crumb-name">${escapeHtml(node.title_zh || ("Lv"+node.level))}</span>
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "vine-node" + (node.level === app.activeLevel ? " active" : "");
+    b.setAttribute("aria-label",
+      "第 " + node.level + " 层：" + (node.title_zh || "Lv" + node.level));
+    b.innerHTML = `
+      <div class="vnode-thumb" style="background-image: url('${escapeHtml(node.image_url || "")}');"></div>
+      <div class="vnode-name">${escapeHtml(node.title_zh || ("Lv" + node.level))}</div>
     `;
-    c.addEventListener("click", () => switchLevel(node.level));
-    bc.appendChild(c);
+    b.addEventListener("click", () => switchLevel(node.level));
+    bc.appendChild(b);
     if (idx < meta.path.length - 1) {
       const sep = document.createElement("span");
-      sep.className = "crumb-sep";
+      sep.className = "vine-sep";
       sep.textContent = "›";
+      sep.setAttribute("aria-hidden", "true");
       bc.appendChild(sep);
     }
   });
-  right.appendChild(bc);
+  center.appendChild(bc);
 
-  // ---- canvas ----
-  const canvasWrap = document.createElement("div");
-  canvasWrap.className = "canvas-wrap";
+  // 画框
+  const canvasFrame = document.createElement("div");
+  canvasFrame.className = "canvas-frame";
   const host = document.createElement("div");
   host.className = "canvas-host";
-  const activeNode = meta.path.find(n => n.level === app.activeLevel);
+  const activeNode = meta.path.find(n => n.level === app.activeLevel) || meta.path[0];
   const img = document.createElement("img");
   img.className = "canvas-img";
   img.src = activeNode.image_url;
+  img.alt = (meta.dish_name_zh || "") + " 第 " + activeNode.level + " 层爆炸图";
   img.draggable = false;
   host.appendChild(img);
 
   const overlay = document.createElement("div");
   overlay.className = "canvas-overlay" + (app.selecting ? " selecting" : "");
   overlay.innerHTML = `
-    <div class="scrim"></div>
-    <div class="redbox"></div>
-    <div class="candidate"></div>
+    <div class="scrim" aria-hidden="true"></div>
+    <div class="redbox" aria-hidden="true"></div>
+    <div class="candidate" aria-hidden="true"></div>
+    <div class="hint-bubble" id="hint-bubble" aria-hidden="true"></div>
     ${ app.selecting
-        ? `<div class="hint">拖动框选 · 双击物体可一键选中</div>`
-        : "" }
+        ? `<div class="select-hint">在图上拖一个框 · 双击物体可一键选中</div>`
+        : `<div class="select-hint">点下方「框出一块」开始拆这一层</div>` }
   `;
   host.appendChild(overlay);
-  canvasWrap.appendChild(host);
-  right.appendChild(canvasWrap);
+  canvasFrame.appendChild(host);
+  center.appendChild(canvasFrame);
 
-  // ---- layers list (collapsible) ----
-  const list = document.createElement("div");
-  list.className = "layers-list" + (app.showLayers ? " open" : "");
+  // 移动端 layers list（可折叠）
+  const layersList = document.createElement("div");
+  layersList.className = "layers-list-mobile" + (app.showLayers ? " open" : "");
   const layers = app.layersByLevel[String(app.activeLevel)] || [];
-  list.innerHTML = layers.map((l, i) => `
-    <div class="layer-row" data-idx="${i}">
-      <span class="layer-kind ${l.kind === 'tool' ? 'tool' : ''}">
-        ${l.kind === 'tool' ? '🔧 工具' : '🥬 食材'}
-      </span>
-      <span class="layer-name">${escapeHtml(l.name_zh || '?')}</span>
-      <span class="layer-desc">${escapeHtml(l.desc_30 || '')}</span>
-    </div>
-  `).join("") || `<div class="layer-row"><span class="layer-desc" style="max-width:100%;">（暂无 layers 元数据）</span></div>`;
-  // 点击 layer-row 也能触发吸附选中
-  list.querySelectorAll(".layer-row").forEach(row => {
-    row.addEventListener("click", () => {
-      const idx = parseInt(row.dataset.idx, 10);
-      const layer = layers[idx];
-      if (!layer || !layer.bbox) return;
-      triggerDrill(layer.bbox);
+  if (layers.length) {
+    layersList.innerHTML = layers.map((l, i) => `
+      <button type="button" class="layer-row" data-idx="${i}"
+              aria-label="第 ${i + 1} 行 · ${l.kind === "tool" ? "工具" : "食材"} · ${escapeHtml(l.name_zh || "")}">
+        <span class="tag-kind ${l.kind === 'tool' ? 'tool' : 'food'}">
+          ${l.kind === 'tool' ? '工具' : '食材'}
+        </span>
+        <span class="layer-meta">
+          <span class="layer-name">${escapeHtml(l.name_zh || "?")}</span>
+          <span class="layer-desc">${escapeHtml(l.desc_30 || "")}</span>
+        </span>
+      </button>
+    `).join("");
+    layersList.querySelectorAll(".layer-row").forEach(row => {
+      row.addEventListener("click", () => {
+        const idx = parseInt(row.dataset.idx, 10);
+        const layer = layers[idx];
+        if (!layer || !layer.bbox) return;
+        hintToFrameTarget(canvasFrame, layer);
+      });
     });
-  });
-  right.appendChild(list);
+  } else {
+    layersList.innerHTML = `<div class="layer-row" style="cursor: default;"><span class="layer-desc">（这一层暂无 layers 元数据）</span></div>`;
+  }
+  center.appendChild(layersList);
 
-  // ---- bottom bar ----
+  // 移动端「点本图任意一块继续拆解」小提示
+  const tinyHint = document.createElement("div");
+  tinyHint.className = "layer-list-mini";
+  tinyHint.textContent = layers.length
+    ? "在图上拖框 · 框出你想拆的那一块"
+    : "AI 还没列出这一层的物体，可以试着拖框";
+  center.appendChild(tinyHint);
+
+  // 底部 CTA
   const bb = document.createElement("div");
   bb.className = "bottom-bar";
   if (app.selecting) {
     bb.innerHTML = `
-      <button class="cta secondary" id="cancel-btn">取消</button>
-      <button class="cta" id="confirm-btn" disabled>✓ 分解这一块</button>
+      <button class="btn ghost" id="cancel-btn">取消</button>
+      <button class="btn primary" id="confirm-btn" disabled>框出一块继续</button>
     `;
   } else {
     bb.innerHTML = `
-      <button class="cta secondary" id="layers-btn">${app.showLayers ? "收起清单" : "查看清单"}</button>
-      <button class="cta" id="select-btn">✏️ 框选 → 继续分解</button>
+      <button class="btn ghost" id="layers-btn" aria-expanded="${app.showLayers}">
+        ${app.showLayers ? "收起清单" : "查看清单 (" + layers.length + ")"}
+      </button>
+      <button class="btn primary" id="select-btn">框出一块</button>
     `;
   }
-  right.appendChild(bb);
+  center.appendChild(bb);
 
-  root.appendChild(wrap);
+  // 桌面右侧 layers 面板
+  screen.appendChild(buildLayersPane(layers));
 
-  // ---- 交互绑定 ----
+  // 完成态 publish 区（仅当深度 >= 2 时显示）
+  if ((meta.path || []).length >= 2) {
+    const ps = document.createElement("div");
+    ps.className = "publish-strip";
+    ps.innerHTML = `
+      <div class="label">${app.isPublished
+          ? "这次探索已在 trending 上 · 可以撤回或继续分享"
+          : "已经拆了 " + meta.path.length + " 层 · 把这次探索发布到全站？"}</div>
+      <div class="btn-row">
+        ${ app.isPublished
+            ? `<button class="btn ghost" id="unpub-btn">从 trending 撤回</button>
+               <button class="btn primary" id="share-btn-2">分享链接</button>`
+            : `<button class="btn primary" id="pub-btn">发到 trending</button>
+               <button class="btn ghost" id="share-btn-2">分享链接</button>` }
+      </div>
+    `;
+    center.appendChild(ps);
+    if (ps.querySelector("#pub-btn")) ps.querySelector("#pub-btn").addEventListener("click", publishJourney);
+    if (ps.querySelector("#unpub-btn")) ps.querySelector("#unpub-btn").addEventListener("click", unpublishJourney);
+    if (ps.querySelector("#share-btn-2")) ps.querySelector("#share-btn-2").addEventListener("click", onShareClick);
+  }
+
+  root.appendChild(screen);
+
+  // 交互绑定
   if (app.selecting) {
-    bindSelection(overlay, img);
+    bindSelection(overlay, img, canvasFrame);
     bb.querySelector("#cancel-btn").addEventListener("click", () => {
       currentBbox = null;
       setState({ selecting: false });
     });
-    const confirmBtn = bb.querySelector("#confirm-btn");
-    confirmBtn.addEventListener("click", () => {
+    const cfb = bb.querySelector("#confirm-btn");
+    cfb.addEventListener("click", () => {
       if (!currentBbox) return;
-      triggerDrill(currentBbox);
+      openConfirm(currentBbox, img);
     });
-    // 暴露给 bindSelection
-    overlay._confirmBtn = confirmBtn;
+    overlay._confirmBtn = cfb;
   } else {
     bb.querySelector("#select-btn").addEventListener("click", () => {
-      // 进入框选前要等图加载完
       if (!img.complete) {
-        img.addEventListener("load", () => setState({ selecting: true }), {once:true});
+        img.addEventListener("load", () => setState({ selecting: true }), { once: true });
       } else {
         setState({ selecting: true });
       }
@@ -716,11 +1856,87 @@ function renderExplore() {
       setState({ showLayers: !app.showLayers });
     });
   }
+
+  // 渲染 CONFIRM 覆盖层（如有）
+  if (app.confirming) renderConfirmOverlay();
 }
 
-// ============================================================
-// 桌面端思维导图
-// ============================================================
+/* 桌面 layers pane */
+function buildLayersPane(layers) {
+  const pane = document.createElement("aside");
+  pane.className = "layers-pane";
+  pane.setAttribute("aria-label", "本层物体清单");
+  pane.innerHTML = `
+    <h3>本层物体 · ${layers.length} 个</h3>
+    <div id="layers-pane-body"></div>
+    <div style="margin-top: var(--sp-4); padding: var(--sp-3); background: var(--paper);
+                border: var(--bw-thin) dashed var(--ink-soft); border-radius: var(--r-sm);
+                font-family: var(--font-calligraphy); font-size: var(--fs-xs); color: var(--ink-soft); line-height: 1.5;">
+      点物体只会在图上高亮位置 · 真正继续拆解请在图上拖框选中。
+    </div>
+  `;
+  const body = pane.querySelector("#layers-pane-body");
+  if (!layers.length) {
+    body.innerHTML = `<div style="color: var(--ink-soft); font-size: var(--fs-xs);
+        padding: var(--sp-3); font-family: var(--font-calligraphy);">
+      AI 还没列出这一层的物体。
+      </div>`;
+  } else {
+    layers.forEach((l, i) => {
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "layer-row";
+      row.setAttribute("aria-label",
+        "第 " + (i + 1) + " 行 · " + (l.kind === "tool" ? "工具" : "食材")
+        + " · " + (l.name_zh || ""));
+      row.innerHTML = `
+        <span class="tag-kind ${l.kind === 'tool' ? 'tool' : 'food'}">
+          ${l.kind === 'tool' ? '工具' : '食材'}
+        </span>
+        <div class="layer-meta">
+          <div class="layer-name">${escapeHtml(l.name_zh || "?")}</div>
+          <div class="layer-desc">${escapeHtml(l.desc_30 || "")}</div>
+        </div>
+      `;
+      row.addEventListener("click", () => {
+        const frame = document.querySelector(".canvas-frame");
+        if (frame) hintToFrameTarget(frame, l);
+      });
+      body.appendChild(row);
+    });
+  }
+  return pane;
+}
+
+/* 点 mindmap/layers 时高亮 bbox + 浮气泡 */
+function hintToFrameTarget(frame, layer) {
+  const overlay = frame.querySelector(".canvas-overlay");
+  const cand = frame.querySelector(".candidate");
+  const img = frame.querySelector(".canvas-img");
+  const bubble = frame.querySelector("#hint-bubble");
+  if (!overlay || !cand || !img || !bubble) return;
+  if (!layer.bbox || layer.bbox.length < 4) return;
+  const r = img.getBoundingClientRect();
+  const frameR = frame.getBoundingClientRect();
+  const offsetLeft = r.left - frameR.left;
+  const offsetTop = r.top - frameR.top;
+  cand.style.left = (offsetLeft + layer.bbox[0] * r.width) + "px";
+  cand.style.top = (offsetTop + layer.bbox[1] * r.height) + "px";
+  cand.style.width = ((layer.bbox[2] - layer.bbox[0]) * r.width) + "px";
+  cand.style.height = ((layer.bbox[3] - layer.bbox[1]) * r.height) + "px";
+  cand.classList.add("show");
+  bubble.textContent = "在图上框这块，再点「框出一块」继续";
+  bubble.classList.add("show");
+  clearTimeout(frame._hintTimer);
+  frame._hintTimer = setTimeout(() => {
+    cand.classList.remove("show");
+    bubble.classList.remove("show");
+  }, 2400);
+}
+
+/* ============================================================
+   桌面 mindmap（只展开当前层 trunk）
+   ============================================================ */
 function bboxIou(a, b) {
   if (!a || !b || a.length < 4 || b.length < 4) return 0;
   const ix0 = Math.max(a[0], b[0]);
@@ -730,73 +1946,78 @@ function bboxIou(a, b) {
   const iw = Math.max(0, ix1 - ix0);
   const ih = Math.max(0, iy1 - iy0);
   const inter = iw * ih;
-  const areaA = Math.max(0, a[2]-a[0]) * Math.max(0, a[3]-a[1]);
-  const areaB = Math.max(0, b[2]-b[0]) * Math.max(0, b[3]-b[1]);
+  const areaA = Math.max(0, a[2] - a[0]) * Math.max(0, a[3] - a[1]);
+  const areaB = Math.max(0, b[2] - b[0]) * Math.max(0, b[3] - b[1]);
   const u = areaA + areaB - inter;
   return u > 0 ? inter / u : 0;
 }
 
 function buildMindmap(meta) {
-  const mm = document.createElement("div");
-  mm.className = "mindmap";
+  const mm = document.createElement("aside");
+  mm.className = "mindmap-pane";
+  mm.setAttribute("aria-label", "拆解地图");
 
   const header = document.createElement("div");
-  header.className = "mm-title";
-  header.textContent = "🗺  探索地图 · 共 " + meta.path.length + " 层";
+  header.className = "mm-section-title";
+  header.innerHTML = `<span>拆解地图</span><small>共 ${meta.path.length} 层</small>`;
   mm.appendChild(header);
 
   meta.path.forEach((node, i) => {
     const branch = document.createElement("div");
-    branch.className = "mm-branch";
 
-    // 主干节点
     const trunk = document.createElement("button");
-    trunk.className = "mm-trunk" + (node.level === app.activeLevel ? " active" : "");
+    trunk.type = "button";
+    const isActive = node.level === app.activeLevel;
+    trunk.className = "mm-trunk" + (isActive ? " active" : " collapsed");
+    trunk.setAttribute("aria-label",
+      "第 " + node.level + " 层 · " + (node.title_zh || "Lv" + node.level));
     trunk.innerHTML = `
-      <img src="${node.image_url}" alt="" />
-      <div class="mm-trunk-text">
-        <span class="mm-trunk-lv">LV ${node.level}</span>
-        <span class="mm-trunk-name">${escapeHtml(node.title_zh || ("Lv"+node.level))}</span>
+      <div class="mm-thumb" style="background-image: url('${escapeHtml(node.image_url || "")}');"></div>
+      <div class="mm-label">
+        <span class="mm-lv">LV ${node.level}${isActive ? " · 当前" : ""}</span>
+        <span class="mm-name">${escapeHtml(node.title_zh || ("Lv" + node.level))}</span>
       </div>
+      <span class="mm-arrow" aria-hidden="true">${isActive ? "∧" : "∨"}</span>
     `;
     trunk.addEventListener("click", () => switchLevel(node.level));
     branch.appendChild(trunk);
 
-    // 该层 layers（即"可分支选项"）
-    const layers = app.layersByLevel[String(node.level)] || [];
-    const nextNode = meta.path[i + 1];
-    const drilledBbox = nextNode && nextNode.parent_picked
-                         && nextNode.parent_picked.bbox;
-
-    if (layers.length) {
-      const leaves = document.createElement("div");
-      leaves.className = "mm-leaves";
-      layers.forEach(layer => {
-        const leaf = document.createElement("button");
-        const drilled = drilledBbox &&
-                        bboxIou(drilledBbox, layer.bbox) > 0.4;
-        leaf.className = "mm-leaf" + (drilled ? " drilled" : "");
-        const emoji = layer.kind === "tool" ? "🔧" : "🥬";
-        leaf.innerHTML = `
-          <span class="mm-leaf-kind">${emoji}</span>
-          <span class="mm-leaf-name">${escapeHtml(layer.name_zh || "?")}</span>
-          <span class="mm-leaf-arrow">${ drilled ? "→" : "›" }</span>
-        `;
-        leaf.addEventListener("click", () => {
-          if (drilled && nextNode) {
-            // 已钻过 → 直接跳到下一层
-            switchLevel(nextNode.level);
-          } else {
-            // 未钻 → 必须先把 active 层设为该 leaf 所在层，再 drill
-            if (node.level !== app.activeLevel) {
-              app.activeLevel = node.level;
+    // 只在当前层展开 leaves
+    if (isActive) {
+      const layers = app.layersByLevel[String(node.level)] || [];
+      const nextNode = meta.path[i + 1];
+      const drilledBbox = nextNode && nextNode.parent_picked && nextNode.parent_picked.bbox;
+      if (layers.length) {
+        const leaves = document.createElement("div");
+        leaves.className = "mm-leaves";
+        layers.forEach(layer => {
+          const leaf = document.createElement("button");
+          leaf.type = "button";
+          const drilled = drilledBbox && bboxIou(drilledBbox, layer.bbox) > 0.4;
+          leaf.className = "mm-leaf" + (drilled ? " drilled" : "");
+          leaf.setAttribute("aria-label",
+            (drilled ? "已钻入：" : "") + (layer.kind === "tool" ? "工具" : "食材")
+            + " · " + (layer.name_zh || "未知"));
+          leaf.innerHTML = `
+            <span class="leaf-shape ${layer.kind === 'tool' ? 'tool' : ''}" aria-hidden="true"></span>
+            <span class="leaf-name">${escapeHtml(layer.name_zh || "?")}${
+              drilled ? "（已钻入）" : ""
+            }</span>
+            <span class="leaf-arrow" aria-hidden="true">${drilled ? "→" : ""}</span>
+          `;
+          leaf.addEventListener("click", () => {
+            if (drilled && nextNode) {
+              switchLevel(nextNode.level);   // 已钻过 → 跳到下层
+            } else {
+              // 未钻 → 在画布上高亮 + 浮气泡，不直接分解
+              const frame = document.querySelector(".canvas-frame");
+              if (frame) hintToFrameTarget(frame, layer);
             }
-            triggerDrill(layer.bbox);
-          }
+          });
+          leaves.appendChild(leaf);
         });
-        leaves.appendChild(leaf);
-      });
-      branch.appendChild(leaves);
+        branch.appendChild(leaves);
+      }
     }
 
     mm.appendChild(branch);
@@ -805,18 +2026,24 @@ function buildMindmap(meta) {
   return mm;
 }
 
-// ============================================================
-// 选择 / 拖框 / 吸附
-// ============================================================
+/* ============================================================
+   拖框 / 吸附
+   ============================================================ */
 let currentBbox = null;
 
-function bindSelection(overlay, img) {
+function bindSelection(overlay, img, canvasFrame) {
   const redbox = overlay.querySelector(".redbox");
   const candidate = overlay.querySelector(".candidate");
 
-  function getImageRect() {
+  function getImgRect() {
     const r = img.getBoundingClientRect();
-    return r;
+    const o = overlay.getBoundingClientRect();
+    return {
+      width: r.width,
+      height: r.height,
+      offX: r.left - o.left,
+      offY: r.top - o.top,
+    };
   }
 
   let dragging = false;
@@ -826,25 +2053,22 @@ function bindSelection(overlay, img) {
   overlay.addEventListener("pointerdown", (e) => {
     overlay.setPointerCapture(e.pointerId);
     dragging = true;
-    const r = getImageRect();
-    startX = Math.max(0, Math.min(r.width, e.clientX - r.left));
-    startY = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    const r = getImgRect();
+    startX = Math.max(0, Math.min(r.width,  e.clientX - overlay.getBoundingClientRect().left - r.offX));
+    startY = Math.max(0, Math.min(r.height, e.clientY - overlay.getBoundingClientRect().top  - r.offY));
     redbox.classList.add("visible");
-    updateRedbox(startX, startY, startX, startY);
+    drawBoxLocal(redbox, r, startX, startY, startX, startY);
 
-    // 双击吸附检测
     const now = Date.now();
     if (now - lastTap < 320) {
-      // 双击 → 找 bbox 内的最小 layer
       const layers = app.layersByLevel[String(app.activeLevel)] || [];
-      const ratioX = startX / r.width;
-      const ratioY = startY / r.height;
-      const hit = pickLayerContaining(layers, ratioX, ratioY);
+      const rx = startX / r.width;
+      const ry = startY / r.height;
+      const hit = pickLayerContaining(layers, rx, ry);
       if (hit) {
         currentBbox = hit.bbox.slice();
-        renderBboxOnImage(currentBbox);
+        drawBoxRatio(redbox, r, currentBbox);
         if (overlay._confirmBtn) overlay._confirmBtn.disabled = false;
-        showCandidate(hit, r);
         dragging = false;
       }
     }
@@ -852,16 +2076,15 @@ function bindSelection(overlay, img) {
   });
 
   overlay.addEventListener("pointermove", (e) => {
-    const r = getImageRect();
-    const cx = Math.max(0, Math.min(r.width, e.clientX - r.left));
-    const cy = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    const r = getImgRect();
+    const cx = Math.max(0, Math.min(r.width,  e.clientX - overlay.getBoundingClientRect().left - r.offX));
+    const cy = Math.max(0, Math.min(r.height, e.clientY - overlay.getBoundingClientRect().top  - r.offY));
     if (dragging) {
-      updateRedbox(startX, startY, cx, cy);
+      drawBoxLocal(redbox, r, startX, startY, cx, cy);
     } else {
-      // hover：高亮 bbox 候选
       const layers = app.layersByLevel[String(app.activeLevel)] || [];
       const hit = pickLayerContaining(layers, cx / r.width, cy / r.height);
-      if (hit) showCandidate(hit, r);
+      if (hit) drawBoxRatio(candidate, r, hit.bbox), candidate.classList.add("show");
       else candidate.classList.remove("show");
     }
   });
@@ -869,24 +2092,23 @@ function bindSelection(overlay, img) {
   overlay.addEventListener("pointerup", (e) => {
     if (!dragging) return;
     dragging = false;
-    const r = getImageRect();
-    const cx = Math.max(0, Math.min(r.width, e.clientX - r.left));
-    const cy = Math.max(0, Math.min(r.height, e.clientY - r.top));
+    const r = getImgRect();
+    const cx = Math.max(0, Math.min(r.width,  e.clientX - overlay.getBoundingClientRect().left - r.offX));
+    const cy = Math.max(0, Math.min(r.height, e.clientY - overlay.getBoundingClientRect().top  - r.offY));
     const x0 = Math.min(startX, cx);
     const y0 = Math.min(startY, cy);
     const x1 = Math.max(startX, cx);
     const y1 = Math.max(startY, cy);
-    // 太小 → 视为点击；尝试吸附
     if ((x1 - x0) < 12 && (y1 - y0) < 12) {
+      // 点击 → 尝试吸附
       const layers = app.layersByLevel[String(app.activeLevel)] || [];
-      const hit = pickLayerContaining(layers, (x0+x1)/2 / r.width, (y0+y1)/2 / r.height);
+      const hit = pickLayerContaining(layers, (x0 + x1) / 2 / r.width, (y0 + y1) / 2 / r.height);
       if (hit) {
         currentBbox = hit.bbox.slice();
-        renderBboxOnImage(currentBbox);
+        drawBoxRatio(redbox, r, currentBbox);
         if (overlay._confirmBtn) overlay._confirmBtn.disabled = false;
         return;
       }
-      // 没吸附到 → 清空
       currentBbox = null;
       redbox.classList.remove("visible");
       if (overlay._confirmBtn) overlay._confirmBtn.disabled = true;
@@ -896,37 +2118,26 @@ function bindSelection(overlay, img) {
     if (overlay._confirmBtn) overlay._confirmBtn.disabled = false;
   });
 
-  function updateRedbox(x0, y0, x1, y1) {
-    const left = Math.min(x0, x1);
-    const top = Math.min(y0, y1);
-    const w = Math.abs(x1 - x0);
-    const h = Math.abs(y1 - y0);
-    redbox.style.left = left + "px";
-    redbox.style.top = top + "px";
-    redbox.style.width = w + "px";
-    redbox.style.height = h + "px";
+  function drawBoxLocal(el, r, x0, y0, x1, y1) {
+    const L = Math.min(x0, x1);
+    const T = Math.min(y0, y1);
+    const W = Math.abs(x1 - x0);
+    const H = Math.abs(y1 - y0);
+    el.style.left = (r.offX + L) + "px";
+    el.style.top  = (r.offY + T) + "px";
+    el.style.width = W + "px";
+    el.style.height = H + "px";
   }
-
-  function renderBboxOnImage(bbox) {
-    const r = getImageRect();
-    redbox.classList.add("visible");
-    redbox.style.left = (bbox[0] * r.width) + "px";
-    redbox.style.top = (bbox[1] * r.height) + "px";
-    redbox.style.width = ((bbox[2] - bbox[0]) * r.width) + "px";
-    redbox.style.height = ((bbox[3] - bbox[1]) * r.height) + "px";
-  }
-
-  function showCandidate(layer, r) {
-    candidate.style.left = (layer.bbox[0] * r.width) + "px";
-    candidate.style.top = (layer.bbox[1] * r.height) + "px";
-    candidate.style.width = ((layer.bbox[2] - layer.bbox[0]) * r.width) + "px";
-    candidate.style.height = ((layer.bbox[3] - layer.bbox[1]) * r.height) + "px";
-    candidate.classList.add("show");
+  function drawBoxRatio(el, r, bbox) {
+    el.classList.add("visible");
+    el.style.left = (r.offX + bbox[0] * r.width) + "px";
+    el.style.top  = (r.offY + bbox[1] * r.height) + "px";
+    el.style.width = ((bbox[2] - bbox[0]) * r.width) + "px";
+    el.style.height = ((bbox[3] - bbox[1]) * r.height) + "px";
   }
 }
 
 function pickLayerContaining(layers, rx, ry) {
-  // 找包含 (rx, ry) 的最小 bbox layer
   let best = null;
   let bestArea = Infinity;
   for (const l of layers) {
@@ -934,35 +2145,187 @@ function pickLayerContaining(layers, rx, ry) {
     const [x0, y0, x1, y1] = l.bbox;
     if (x0 <= rx && rx <= x1 && y0 <= ry && ry <= y1) {
       const a = (x1 - x0) * (y1 - y0);
-      if (a > 0 && a < bestArea) {
-        bestArea = a;
-        best = l;
-      }
+      if (a > 0 && a < bestArea) { bestArea = a; best = l; }
     }
   }
   return best;
 }
 
-// ============================================================
-// 交互动作
-// ============================================================
+/* ============================================================
+   CONFIRM 抽屉
+   ============================================================ */
+function openConfirm(bbox, imgEl) {
+  // 生成 crop 预览（canvas）
+  const cropUrl = cropImageToDataUrl(imgEl, bbox, 220);
+  // 找候选 layer 名（吸附用）
+  const layers = app.layersByLevel[String(app.activeLevel)] || [];
+  const matched = pickLayerByBbox(layers, bbox);
+  setState({
+    confirming: true,
+    pendingBbox: bbox,
+    pendingCropUrl: cropUrl,
+    pendingTargetName: matched ? (matched.name_zh || "") : "",
+    pendingTargetKind: matched ? (matched.kind || "ingredient") : "ingredient",
+    confirmTriggerEl: document.activeElement,
+  });
+}
+
+function pickLayerByBbox(layers, bbox) {
+  let best = null;
+  let bestIou = 0;
+  for (const l of layers) {
+    const iou = bboxIou(bbox, l.bbox || [0,0,0,0]);
+    if (iou > bestIou) { bestIou = iou; best = l; }
+  }
+  return bestIou > 0.15 ? best : null;
+}
+
+function closeConfirm() {
+  setState({
+    confirming: false,
+    pendingBbox: null,
+    pendingCropUrl: null,
+    pendingTargetName: "",
+  });
+  // 焦点回归
+  setTimeout(() => {
+    if (app.confirmTriggerEl && document.body.contains(app.confirmTriggerEl)) {
+      app.confirmTriggerEl.focus();
+    }
+  }, 50);
+}
+
+function renderConfirmOverlay() {
+  // 删可能旧的
+  const old = document.querySelector(".confirm-overlay");
+  if (old) old.remove();
+
+  const ov = document.createElement("div");
+  ov.className = "confirm-overlay";
+  ov.setAttribute("role", "dialog");
+  ov.setAttribute("aria-modal", "true");
+  ov.setAttribute("aria-labelledby", "confirm-ask");
+
+  const targetText = app.pendingTargetName || "这一块";
+
+  ov.innerHTML = `
+    <div class="confirm-sheet" tabindex="-1">
+      <div class="handle" aria-hidden="true"></div>
+      <div class="mascot-confirm" aria-hidden="true">
+        <img src="${MASCOT_URL}" alt="" />
+      </div>
+      <div class="ask" id="confirm-ask">再拆一层 · ${escapeHtml(targetText)}？</div>
+      <div class="crop-preview" role="img" aria-label="你选中的区域"
+        ${ app.pendingCropUrl
+            ? `style="background-image: url('${escapeHtml(app.pendingCropUrl)}');"`
+            : "" }></div>
+      <div class="eta-pill">~ 约 60-90 秒</div>
+      <p class="note">AI 会用你刚才框的那一块作为下一层的输入。<br/>等待期间可以滑回去看上一层。</p>
+      <div class="btn-stack">
+        <button class="btn primary" id="cf-go">继续 →</button>
+        <button class="btn ghost" id="cf-cancel">取消</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(ov);
+
+  const sheet = ov.querySelector(".confirm-sheet");
+  const goBtn = ov.querySelector("#cf-go");
+  const cancelBtn = ov.querySelector("#cf-cancel");
+
+  goBtn.addEventListener("click", () => {
+    const bbox = app.pendingBbox;
+    const cropUrl = app.pendingCropUrl;
+    const targetName = app.pendingTargetName;
+    const targetKind = app.pendingTargetKind;
+    closeConfirm();
+    if (!bbox) return;
+    triggerDrill(bbox, { cropUrl, targetName, targetKind });
+  });
+  cancelBtn.addEventListener("click", closeConfirm);
+  // 点遮罩关
+  ov.addEventListener("click", (e) => {
+    if (e.target === ov) closeConfirm();
+  });
+
+  // ESC 关 + focus trap
+  const focusables = ov.querySelectorAll("button");
+  goBtn.focus();
+  function keyHandler(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      closeConfirm();
+      document.removeEventListener("keydown", keyHandler);
+      return;
+    }
+    if (e.key === "Tab" && focusables.length) {
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }
+  document.addEventListener("keydown", keyHandler);
+  ov._keyHandler = keyHandler;
+}
+
+function cropImageToDataUrl(imgEl, bbox, size) {
+  try {
+    const cv = document.createElement("canvas");
+    cv.width = size; cv.height = size;
+    const ctx = cv.getContext("2d");
+    const iw = imgEl.naturalWidth;
+    const ih = imgEl.naturalHeight;
+    const sx = bbox[0] * iw;
+    const sy = bbox[1] * ih;
+    const sw = (bbox[2] - bbox[0]) * iw;
+    const sh = (bbox[3] - bbox[1]) * ih;
+    // 居中保持原比例
+    const scale = Math.min(size / sw, size / sh);
+    const dw = sw * scale;
+    const dh = sh * scale;
+    ctx.fillStyle = "#0d0d0f";
+    ctx.fillRect(0, 0, size, size);
+    ctx.drawImage(imgEl, sx, sy, sw, sh, (size - dw) / 2, (size - dh) / 2, dw, dh);
+    return cv.toDataURL("image/jpeg", 0.8);
+  } catch (e) {
+    return null;
+  }
+}
+
+/* ============================================================
+   交互动作 · UPLOAD / DRILL
+   ============================================================ */
 async function onFileChosen(e) {
   const file = e.target.files[0];
   if (!file) return;
   e.target.value = "";
+
   if (file.size > 12 * 1024 * 1024) {
-    setState({ errorMsg: "图片超过 12MB，请压缩或换一张。" });
+    showToast({ kind: "error", msg: "图片超过 12 MB，请压缩或换一张。" });
     return;
   }
-  // 切到 loading
-  setState({
-    state: STATE.LOADING,
-    cropPreviewUrl: URL.createObjectURL(file),
-    loadingTitle: "AI 正在生成 Lv1 爆炸图…",
-    loadingEta: "约 60-90 秒（首次会调用审核 + 识菜名 + 图像生成）",
-    loadingBrief: "",
-    errorMsg: "",
-  });
+
+  // 切到 LOADING（先无 jobId，等接口返回再 start polling）
+  const previewUrl = URL.createObjectURL(file);
+  app.loadingSourceImageUrl = previewUrl;
+
+  app.view = STATE.LOADING;
+  app.loadingType = "start";
+  app.loadingJobId = null;
+  app.loadingStartedAt = Date.now();
+  app.loadingStage = "queued";
+  app.loadingPeekThumbUrl = previewUrl;
+  app.loadingPeekLabel = "你上传的图";
+  app.loadingPeekSub = "AI 会先检查它是不是食物";
+  app.loadingSubQuipIdx = 0;
+  render();
+
   try {
     const buf = await file.arrayBuffer();
     const resp = await fetch("/api/start", {
@@ -971,40 +2334,38 @@ async function onFileChosen(e) {
       body: buf,
     });
     const j = await resp.json();
-    if (!resp.ok || !j.ok) throw new Error(j.error || ("HTTP " + resp.status));
-    await enterJourney(j);
+    if (!resp.ok || !j.ok || !j.job_id) {
+      throw new Error(j.error || ("HTTP " + resp.status));
+    }
+    startLoading({
+      type: "start",
+      jobId: j.job_id,
+      peekThumb: previewUrl,
+      peekLabel: "你上传的图",
+      peekSub: "AI 会先检查、识菜名，然后画第一层",
+    });
   } catch (err) {
-    setState({ state: STATE.UPLOAD, errorMsg: "生成失败：" + (err.message || err) });
+    stopLoading();
+    setState({ view: STATE.UPLOAD });
+    showToast({ kind: "error", msg: "上传失败：" + (err.message || err) });
   }
 }
 
-async function enterJourney(j) {
-  // /api/start 或 /api/drill 都返回 {journey_id, current_level, path, layers_meta}
-  app.journeyId = j.journey_id;
-  app.meta = {
-    journey_id: j.journey_id,
-    current_level: j.current_level,
-    path: j.path,
-    dish_name_zh: (j.path && j.path[0]) ? j.path[0].title_zh : "",
-  };
-  app.layersByLevel[String(j.current_level)] = j.layers_meta || [];
-  app.activeLevel = j.current_level;
-  setState({
-    state: STATE.EXPLORE,
-    selecting: false,
-    showLayers: false,
-  });
-  history.replaceState(null, "", "/j/" + j.journey_id);
-}
+async function triggerDrill(bbox, { cropUrl, targetName, targetKind } = {}) {
+  // 切到 LOADING + peek
+  app.view = STATE.LOADING;
+  app.loadingType = "drill";
+  app.loadingJobId = null;
+  app.loadingStartedAt = Date.now();
+  app.loadingStage = "queued";
+  app.loadingPeekThumbUrl = cropUrl || null;
+  app.loadingPeekLabel = targetName
+    ? "你框的：" + targetName
+    : "你框选的区域";
+  app.loadingPeekSub = "来自第 " + app.activeLevel + " 层";
+  app.loadingSubQuipIdx = Math.floor(Math.random() * SUB_QUIPS.length);
+  render();
 
-async function triggerDrill(bbox) {
-  setState({
-    state: STATE.LOADING,
-    loadingTitle: "AI 正在分解你框选的物体…",
-    loadingEta: "约 60-90 秒",
-    loadingBrief: "",
-    cropPreviewUrl: app.cropPreviewUrl, // 保留前一张已设的（首次为空）
-  });
   try {
     const resp = await fetch("/api/drill", {
       method: "POST",
@@ -1016,23 +2377,67 @@ async function triggerDrill(bbox) {
       }),
     });
     const j = await resp.json();
-    if (!resp.ok || !j.ok) throw new Error(j.error || ("HTTP " + resp.status));
-    await enterJourney(j);
+    if (!resp.ok || !j.ok || !j.job_id) {
+      throw new Error(j.error || ("HTTP " + resp.status));
+    }
+    startLoading({
+      type: "drill",
+      jobId: j.job_id,
+      peekThumb: cropUrl,
+      peekLabel: app.loadingPeekLabel,
+      peekSub: app.loadingPeekSub,
+    });
   } catch (err) {
-    // 失败 → 回到探索视图（保持原 level）+ 显示 banner
-    alert("分解失败：" + (err.message || err));
-    setState({ state: STATE.EXPLORE, selecting: false });
+    stopLoading();
+    setState({ view: STATE.EXPLORE, selecting: false });
+    showToast({
+      kind: "error",
+      msg: friendlyError(err.message || err),
+      retry: () => triggerDrill(bbox, { cropUrl, targetName, targetKind }),
+    });
   }
+}
+
+async function enterJourney(j) {
+  app.journeyId = j.journey_id;
+  app.meta = {
+    journey_id: j.journey_id,
+    current_level: j.current_level,
+    path: j.path,
+    dish_name_zh: (j.path && j.path[0]) ? j.path[0].title_zh : "",
+  };
+  app.layersByLevel[String(j.current_level)] = j.layers_meta || [];
+  app.activeLevel = j.current_level;
+  recordMyJourney(app.meta);
+  setState({
+    view: STATE.EXPLORE,
+    selecting: false,
+    showLayers: false,
+  });
+  history.replaceState(null, "", "/j/" + j.journey_id);
+  // 拉一次 is_published 状态
+  checkPublishedStatus(j.journey_id);
+}
+
+async function checkPublishedStatus(jid) {
+  try {
+    const r = await fetch("/api/journey/" + jid);
+    const j = await r.json();
+    if (j.ok) {
+      app.isPublished = !!j.is_published;
+      if (app.view === STATE.EXPLORE) render();
+    }
+  } catch (e) { /* ignore */ }
 }
 
 function switchLevel(level) {
   if (level === app.activeLevel) return;
   app.activeLevel = level;
   app.selecting = false;
-  // 如果该层 layers 尚未拉取（用户跳到一个没看过的层，理论上不会发生），按需补拉
+  currentBbox = null;
   const key = String(level);
   if (!app.layersByLevel[key]) {
-    fetch(`/api/journey/${app.journeyId}/layer/${level}/meta`)
+    fetch("/api/journey/" + app.journeyId + "/layer/" + level + "/meta")
       .then(r => r.json())
       .then(j => {
         if (j.ok) {
@@ -1044,43 +2449,43 @@ function switchLevel(level) {
   render();
 }
 
-async function onShareClick() {
-  const url = location.origin + "/j/" + app.journeyId;
-  try {
-    if (navigator.share) {
-      await navigator.share({ title: "ExploreCipe", url });
-      return;
-    }
-    await navigator.clipboard.writeText(url);
-    alert("已复制链接：" + url);
-  } catch (e) {
-    prompt("复制此链接分享：", url);
+function goHome(showToastNote) {
+  stopLoading();
+  app.view = STATE.UPLOAD;
+  app.journeyId = null;
+  app.meta = null;
+  app.layersByLevel = {};
+  app.activeLevel = 1;
+  app.selecting = false;
+  app.confirming = false;
+  history.replaceState(null, "", "/");
+  render();
+  if (showToastNote) {
+    showToast({
+      kind: "info",
+      msg: "已回到首页 · 你之前的探索已保存到「我的拆解夹」。",
+      autoCloseMs: 3500,
+    });
   }
 }
 
-// ============================================================
-// 启动
-// ============================================================
-function escapeHtml(s) {
-  return String(s == null ? "" : s)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
+function openJourney(jid) {
+  // 切到 LOADING（轻量加载占位）
+  stopLoading();
+  app.view = STATE.LOADING;
+  app.loadingType = "start";
+  app.loadingJobId = null;
+  app.loadingStartedAt = Date.now();
+  app.loadingStage = "queued";
+  app.loadingPeekLabel = "加载已保存的探索";
+  app.loadingPeekSub = "正在拉取这次探索的所有层…";
+  app.loadingPeekThumbUrl = null;
+  render();
 
-async function bootstrap() {
-  const injected = window.__JOURNEY_ID__;
-  const m = location.pathname.match(/^\/j\/([0-9A-Z]+)$/);
-  const jid = injected || (m && m[1]);
-  if (jid) {
-    setState({ state: STATE.LOADING, loadingTitle: "加载已保存的探索…",
-               loadingEta: "稍候", loadingBrief: "", cropPreviewUrl: null });
-    try {
-      const resp = await fetch("/api/journey/" + jid);
-      const j = await resp.json();
-      if (!resp.ok || !j.ok) throw new Error(j.error || "load failed");
+  fetch("/api/journey/" + jid)
+    .then(r => r.json())
+    .then(j => {
+      if (!j.ok) throw new Error(j.error || "load failed");
       const meta = j.meta;
       app.journeyId = meta.journey_id;
       app.meta = {
@@ -1091,19 +2496,100 @@ async function bootstrap() {
       };
       app.layersByLevel = j.layers || {};
       app.activeLevel = meta.current_level;
-      setState({ state: STATE.EXPLORE });
-      return;
-    } catch (e) {
-      setState({ state: STATE.UPLOAD,
-                 errorMsg: "无法加载这次探索：" + (e.message || e) });
+      app.isPublished = !!j.is_published;
+      recordMyJourney(app.meta);
+      setState({ view: STATE.EXPLORE, selecting: false, showLayers: false });
+      history.replaceState(null, "", "/j/" + jid);
+    })
+    .catch((e) => {
+      setState({ view: STATE.UPLOAD });
+      showToast({ kind: "error", msg: "无法加载这次探索：" + (e.message || e) });
       history.replaceState(null, "", "/");
+    });
+}
+
+/* ============================================================
+   分享 / publish
+   ============================================================ */
+async function onShareClick() {
+  if (!app.journeyId) return;
+  const url = urlFor(app.journeyId);
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: "ExploreCipe · " + (app.meta && app.meta.dish_name_zh || ""), url });
       return;
     }
+    await navigator.clipboard.writeText(url);
+    showToast({ kind: "info", msg: "已复制链接：" + url });
+  } catch (e) {
+    showToast({ kind: "info", msg: "复制此链接分享：" + url, autoCloseMs: 8000 });
+  }
+}
+
+async function publishJourney() {
+  if (!app.journeyId) return;
+  try {
+    const r = await fetch("/api/journey/" + app.journeyId + "/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "发布失败");
+    app.isPublished = true;
+    app.trendingLoaded = false; // 下次回首页重新拉
+    render();
+    showToast({ kind: "info", msg: "已发到 trending · 大家都能看到啦" });
+  } catch (e) {
+    showToast({ kind: "error", msg: "发布失败：" + (e.message || e) });
+  }
+}
+
+async function unpublishJourney() {
+  if (!app.journeyId) return;
+  try {
+    const r = await fetch("/api/journey/" + app.journeyId + "/publish", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "unpublish" }),
+    });
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error || "撤回失败");
+    app.isPublished = false;
+    app.trendingLoaded = false;
+    render();
+    showToast({ kind: "info", msg: "已从 trending 撤回" });
+  } catch (e) {
+    showToast({ kind: "error", msg: "撤回失败：" + (e.message || e) });
+  }
+}
+
+/* ============================================================
+   bootstrap
+   ============================================================ */
+async function bootstrap() {
+  // 读 localStorage 历史
+  app.myJourneys = loadMyJourneys();
+
+  const injected = window.__JOURNEY_ID__;
+  const m = location.pathname.match(/^\/j\/([0-9A-Z]+)$/);
+  const jid = injected || (m && m[1]);
+
+  if (jid) {
+    openJourney(jid);
+    return;
   }
   render();
 }
 
 bootstrap();
+
+// 全局 ESC 关 CONFIRM 抽屉
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && app.confirming) {
+    closeConfirm();
+  }
+});
 </script>
 </body>
 </html>
