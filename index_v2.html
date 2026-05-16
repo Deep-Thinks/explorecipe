@@ -1502,6 +1502,7 @@ function renderLoading() {
   const quip = STAGE_QUIPS[app.loadingStage] || "AI 正在工作";
   const subQuip = SUB_QUIPS[app.loadingSubQuipIdx % SUB_QUIPS.length];
   const elapsed = (Date.now() - app.loadingStartedAt) / 1000;
+  const isDrill = app.loadingType === "drill";
   const etaLow = isDrill ? 50 : 60;
   const etaHigh = isDrill ? 80 : 90;
   const showTimeout = elapsed > etaHigh + 30;

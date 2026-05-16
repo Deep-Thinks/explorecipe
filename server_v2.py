@@ -584,7 +584,7 @@ def call_image_gen(ref_image_bytes, prompt, size=None, retries=RETRY_TIMES):
 # Gemini 调用 · 通过 OpenAI 兼容协议（生产无法直连 Google，走中转）
 # ============================================================
 def _gemini_call(image_bytes, prompt, mime="image/png", expect_json=True,
-                 temperature=0.3, max_tokens=4000):
+                 temperature=0.3, max_tokens=12000):
     """通用 Gemini 调用（OpenAI 兼容协议）。返回 (parsed_json or text, elapsed_sec)。
 
     - GEMINI_BASE_URL：中转或官方 base url（含 /v1 之前的部分）
@@ -623,6 +623,7 @@ def _gemini_call(image_bytes, prompt, mime="image/png", expect_json=True,
     t0 = time.time()
     last_err = None
     text = None
+    finish_reason = None
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, context=ctx, timeout=GEMINI_TIMEOUT) as resp:
@@ -632,6 +633,7 @@ def _gemini_call(image_bytes, prompt, mime="image/png", expect_json=True,
             if not choices:
                 last_err = "上游无 choices: %s" % str(j)[:300]
             else:
+                finish_reason = choices[0].get("finish_reason")
                 msg = choices[0].get("message") or {}
                 content = msg.get("content")
                 # OpenAI 兼容协议下 content 是 string；少数中转返回 list 形式
@@ -662,7 +664,10 @@ def _gemini_call(image_bytes, prompt, mime="image/png", expect_json=True,
     if expect_json:
         parsed = _safe_json_loads(text)
         if parsed is None:
-            raise RuntimeError("Gemini 返回非 JSON：%s" % text[:300])
+            # finish_reason="length" 说明被 max_tokens 截断（思维模型推理吃掉预算）
+            hint = "（疑似 max_tokens 截断）" if finish_reason == "length" else ""
+            raise RuntimeError("Gemini 返回非 JSON%s[finish=%s]：%s"
+                               % (hint, finish_reason, text[:300]))
         return parsed, elapsed
     return text, elapsed
 
